@@ -1,5 +1,5 @@
 #include "images/image.h"
-#include <SDL2/SDL.h>  // Uncomment when SDL2 is installed
+#include <SDL2/SDL.h> 
 
 int main(int argc, char* argv[]){
     (void)argc;
