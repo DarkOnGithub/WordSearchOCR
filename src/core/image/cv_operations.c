@@ -789,7 +789,6 @@ Contours* findContours(const Image* image, int mode) {
                 return NULL;
             }
 
-            // Create contour from component
             Contour contour;
             if (pixel_count >= 2 && createLineContour(component_pixels, pixel_count, &contour)) {
                 if (!addContourToContours(contours, contour)) {
@@ -863,7 +862,6 @@ Contours* filterContoursByLength(const Contours* contours, double min_length) {
         return NULL;
     }
 
-    // Allocate new contours structure
     Contours* filtered = malloc(sizeof(Contours));
     if (!filtered) {
         fprintf(stderr, "Error: Failed to allocate filtered contours structure\n");
@@ -960,14 +958,12 @@ int findMaxAreaContour(const Contours* contours) {
 
 /*
     Find the bounding rectangle that contains all given rectangles with padding.
-
 */
 int getBoundingRectOfRects(const Rect* rects, int count, int padding, int image_width, int image_height, Rect* result) {
     if (!rects || count <= 0 || !result) {
         return 0;
     }
 
-    // Find min/max coordinates
     int min_x = rects[0].x;
     int min_y = rects[0].y;
     int max_x = rects[0].x + rects[0].width;
@@ -985,7 +981,6 @@ int getBoundingRectOfRects(const Rect* rects, int count, int padding, int image_
         if (y2 > max_y) max_y = y2;
     }
 
-    // Apply padding and clamp to image boundaries
     result->x = (min_x - padding > 0) ? min_x - padding : 0;
     result->y = (min_y - padding > 0) ? min_y - padding : 0;
     int width_calc = max_x - min_x + 2 * padding;
@@ -995,76 +990,3 @@ int getBoundingRectOfRects(const Rect* rects, int count, int padding, int image_
 
     return 1;
 }
-
-// /*
-//     Apply Canny edge detection to an image.
-//     @param image: The input image (must be grayscale, can be pre-blurred or not).
-//     @param sigma: The sigma for Gaussian blur preprocessing (applied internally).
-//     @param low_threshold: low thresh.
-//     @param high_threshold: high thresh.
-//     !Warning: Only works on grayscale images. Modifies the image in place.
-//     Resource: https://en.wikipedia.org/wiki/Canny_edge_detector
-// */
-// void canny_edge_detection(Image* image, float sigma, uint8_t low_threshold, uint8_t high_threshold) {
-//     if (!image) {
-//         fprintf(stderr, "Error: Invalid image for canny_edge_detection\n");
-//         return;
-//     }
-
-//     if (!image->is_grayscale || !image->gray_pixels) {
-//         fprintf(stderr, "Error: Canny edge detection requires a grayscale image\n");
-//         return;
-//     }
-
-//     if (low_threshold >= high_threshold) {
-//         fprintf(stderr, "Error: low_threshold must be less than high_threshold\n");
-//         return;
-//     }
-
-//     int width = image->width;
-//     int height = image->height;
-//     int total_pixels = width * height;
-
-//     // Step 1: Apply Gaussian blur to reduce noise (like OpenCV does internally)
-//     // OpenCV's Canny uses sigma based on aperture size, but for our test case
-//     // we use the provided sigma parameter
-//     gaussian_blur(image, 3, sigma);
-
-//     // Allocate temporary buffers
-//     float* gradient_x = calloc(total_pixels, sizeof(float));
-//     float* gradient_y = calloc(total_pixels, sizeof(float));
-//     float* magnitude = calloc(total_pixels, sizeof(float));
-//     uint8_t* direction = calloc(total_pixels, sizeof(uint8_t));
-//     uint8_t* suppressed = calloc(total_pixels, sizeof(uint8_t));
-
-//     if (!gradient_x || !gradient_y || !magnitude || !direction || !suppressed) {
-//         fprintf(stderr, "Error: Failed to allocate memory for Canny edge detection\n");
-//         if (gradient_x) free(gradient_x);
-//         if (gradient_y) free(gradient_y);
-//         if (magnitude) free(magnitude);
-//         if (direction) free(direction);
-//         if (suppressed) free(suppressed);
-//         return;
-//     }
-
-//     // Step 2: Compute gradients using Sobel operators
-//     compute_sobel_gradients(image->gray_pixels, width, height,
-//                            gradient_x, gradient_y, magnitude, direction);
-
-//     // Step 3: Apply non-maximum suppression
-//     non_maximum_suppression(magnitude, direction, width, height, suppressed);
-
-//     // Step 4: Apply double thresholding and hysteresis
-//     double_threshold_hysteresis(suppressed, width, height,
-//                                low_threshold, high_threshold, image->gray_pixels);
-
-//     // Cleanup
-//     free(gradient_x);
-//     free(gradient_y);
-//     free(magnitude);
-//     free(direction);
-//     free(suppressed);
-
-//     printf("Applied Canny edge detection (sigma=%.2f, low_thresh=%d, high_thresh=%d)\n",
-//            sigma, low_threshold, high_threshold);
-// }
