@@ -1,31 +1,26 @@
+# ===================================================================
+# WordSearchOCR - Modular Architecture Makefile
+# ===================================================================
+
+# Project configuration
+PROJECT_NAME = wordsearch
+BUILD_DIR = build
+SRC_DIR = src
+TARGET = $(BUILD_DIR)/$(PROJECT_NAME)
+
 # Compiler and flags
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -g
-TARGET = wordsearch
-SRCDIR = src
-SOURCES = $(wildcard $(SRCDIR)/*.c) $(wildcard $(SRCDIR)/**/*.c)
-OBJECTS = $(SOURCES:.c=.o)
+CFLAGS = -Wall -Wextra -std=c99 -g -I$(SRC_DIR)
+LDFLAGS = -lm  # Math library for atan2f, sqrtf, expf, etc.
 
+# Source files discovery
+SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f)
+OBJECTS = $(SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+DEPS = $(OBJECTS:.o=.d)
+
+# SDL2 detection and configuration
 SDL2_AVAILABLE := $(shell pkg-config --exists sdl2 2>/dev/null && echo "yes" || echo "no")
 SDL2_IMAGE_AVAILABLE := $(shell pkg-config --exists SDL2_image 2>/dev/null && echo "yes" || echo "no")
-
-# Installation targets
-install-deps:
-	@echo "Installing SDL2 and SDL2_image development libraries..."
-	@command -v apt-get >/dev/null 2>&1 && { \
-		sudo apt-get update && \
-		sudo apt-get install -y libsdl2-dev libsdl2-image-dev; \
-	} || { \
-		echo "Error: apt-get not found. Please install SDL2 manually:"; \
-		exit 1; \
-	}
-
-check-deps:
-	@if [ "$(SDL2_AVAILABLE)" != "yes" ] || [ "$(SDL2_IMAGE_AVAILABLE)" != "yes" ]; then \
-		echo "Missing required dependencies. Run 'make install-deps' to install them."; \
-		echo "Required: libsdl2-dev libsdl2-image-dev"; \
-		exit 1; \
-	fi
 
 # Set SDL flags if available
 ifeq ($(SDL2_AVAILABLE),yes)
@@ -40,30 +35,106 @@ else
     SDL_LIBS =
 endif
 
-# Build target
-all: check-deps $(TARGET)
+# Default target
+all: check-deps dirs $(TARGET)
 
+# Check dependencies
+check-deps:
+	@if [ "$(SDL2_AVAILABLE)" != "yes" ] || [ "$(SDL2_IMAGE_AVAILABLE)" != "yes" ]; then \
+		echo "Error: Missing required dependencies."; \
+		echo "Required: libsdl2-dev libsdl2-image-dev"; \
+		echo "Run 'make install-deps' to install them."; \
+		exit 1; \
+	fi
+	@echo "Dependencies OK: SDL2=$(SDL2_AVAILABLE), SDL2_image=$(SDL2_IMAGE_AVAILABLE)"
+
+# Create build directories
+dirs:
+	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/core/image
+	@mkdir -p $(BUILD_DIR)/processing
+	@mkdir -p $(BUILD_DIR)/grid
+	@mkdir -p $(BUILD_DIR)/ocr
+
+# Linking
 $(TARGET): $(OBJECTS)
-	$(CC) $(OBJECTS) -o $@ $(SDL_LIBS)
+	@echo "Linking $@..."
+	$(CC) $(OBJECTS) -o $@ $(SDL_LIBS) $(LDFLAGS)
+	@echo "Build successful! Binary: $@"
 
-%.o: %.c
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
+# Compilation with dependency generation
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+	@echo "Compiling $<..."
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -MMD -MP -c $< -o $@
+
+# Include generated dependencies
+-include $(DEPS)
+
+# Installation targets
+install-deps:
+	@echo "Installing SDL2 and SDL2_image development libraries..."
+	@command -v apt-get >/dev/null 2>&1 && { \
+		sudo apt-get update && \
+		sudo apt-get install -y libsdl2-dev libsdl2-image-dev; \
+	} || { \
+		echo "Error: apt-get not found."; \
+		echo "Please install SDL2 manually."; \
+		exit 1; \
+	}
 
 # Clean build artifacts
 clean:
-	rm -f $(OBJECTS) $(TARGET)
+	@echo "Cleaning build artifacts..."
+	rm -rf $(BUILD_DIR)
 
-# Rebuild everything
+# Clean and rebuild
 rebuild: clean all
+
+# Run the program (if it exists)
+run: $(TARGET)
+	@echo "Running $(PROJECT_NAME)..."
+	./$(TARGET)
+
+# Debug build
+debug: CFLAGS += -DDEBUG -O0
+debug: all
+
+# Release build
+release: CFLAGS += -O3 -DNDEBUG
+release: all
+
+# Show build information
+info:
+	@echo "=== Build Information ==="
+	@echo "Project: $(PROJECT_NAME)"
+	@echo "Target: $(TARGET)"
+	@echo "Sources: $(words $(SOURCES))"
+	@echo "Objects: $(words $(OBJECTS))"
+	@echo "SDL2: $(SDL2_AVAILABLE)"
+	@echo "SDL2_image: $(SDL2_IMAGE_AVAILABLE)"
+	@echo "Compiler: $(CC)"
+	@echo "CFLAGS: $(CFLAGS)"
+	@echo "LDFLAGS: $(LDFLAGS)"
 
 # Help target
 help:
+	@echo "=== $(PROJECT_NAME) Makefile Help ==="
+	@echo ""
 	@echo "Available targets:"
 	@echo "  all           - Build the project (default)"
-	@echo "  clean         - Remove build artifacts"
-	@echo "  rebuild       - Clean and rebuild the project"
-	@echo "  install-deps  - Install SDL2 and SDL2_image development libraries"
-	@echo "  check-deps    - Check if required dependencies are installed"
+	@echo "  clean         - Remove all build artifacts"
+	@echo "  rebuild       - Clean and rebuild everything"
+	@echo "  run           - Build and run the program"
+	@echo "  debug         - Build with debug flags"
+	@echo "  release       - Build optimized release"
+	@echo "  install-deps  - Install SDL2 dependencies"
+	@echo "  check-deps    - Check if dependencies are installed"
+	@echo "  info          - Show build information"
 	@echo "  help          - Show this help message"
+	@echo ""
+	@echo "Build directory: $(BUILD_DIR)"
+	@echo "Source directory: $(SRC_DIR)"
 
-.PHONY: all clean rebuild install-deps check-deps help
+# Phony targets
+.PHONY: all clean rebuild run debug release install-deps check-deps dirs info help

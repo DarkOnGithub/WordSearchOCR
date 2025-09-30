@@ -1,13 +1,14 @@
-#include "images/image.h"
-#include <SDL2/SDL.h> 
+#include <stdio.h>
+#include <stdlib.h>
+#include "ocr/wordsearch_processor.h"
+
 
 int main(int argc, char* argv[]){
-    (void)argc;
-    (void)argv;
-    Image image;
-    load_image("images/level_1_image_1.png", &image);
-    convert_to_grayscale(&image);
-    save_image("level_1_image_1_grayscale.png", &image);
-    free_image(&image);
+    if(argc != 2) {
+        printf("Usage: %s <image_path>\n", argv[0]);
+        exit(1);
+    }
+    char* image_path = argv[1];
+    process_wordsearch_image(image_path);
     return 0;
 }
