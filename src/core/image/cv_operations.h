@@ -36,6 +36,11 @@ typedef struct {
     uint8_t* data;
 } StructuringElement;
 
+// Structuring element shapes (compatible with OpenCV)
+#define MORPH_RECT   0  // Rectangular structuring element
+#define MORPH_CROSS  1  // Cross-shaped structuring element
+#define MORPH_ELLIPSE 2  // Elliptical structuring element
+
 StructuringElement* getStructuringElement(int shape, int ksize_width, int ksize_height);
 
 typedef enum MorphologicalOperation {
@@ -45,9 +50,10 @@ typedef enum MorphologicalOperation {
     MORPH_DILATE
 } MorphologicalOperation;
 
-void morphologyEx(Image* image, MorphologicalOperation operation, StructuringElement* kernel);
+void morphologyEx(Image* image, MorphologicalOperation operation, StructuringElement* kernel, int iterations);
 void freeStructuringElement(StructuringElement* kernel);
 void add(Image* src1, Image* src2, Image* dst);
+void bitwise_or(const Image* src1, const Image* src2, Image* dst);
 
 typedef struct {
     int x, y;

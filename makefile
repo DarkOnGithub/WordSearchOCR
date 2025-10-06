@@ -13,10 +13,17 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -g -I$(SRC_DIR)
 LDFLAGS = -lm  # Math library for atan2f, sqrtf, expf, etc.
 
-# Source files discovery
-SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f)
-OBJECTS = $(SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+# Source files discovery (exclude test files from main build)
+MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*test*.c" -not -name "*_test.c")
+TEST_SOURCES = $(shell find $(SRC_DIR) -name "*test*.c" -o -name "*_test.c")
+SOURCES = $(MAIN_SOURCES) $(TEST_SOURCES)
+MAIN_OBJECTS = $(MAIN_SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+TEST_OBJECTS = $(TEST_SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+OBJECTS = $(MAIN_OBJECTS) $(TEST_OBJECTS)
 DEPS = $(OBJECTS:.o=.d)
+
+# Test targets
+TEST_TARGET = $(BUILD_DIR)/word_detection_test
 
 # SDL2 detection and configuration
 SDL2_AVAILABLE := $(shell pkg-config --exists sdl2 2>/dev/null && echo "yes" || echo "no")
@@ -38,6 +45,9 @@ endif
 # Default target
 all: check-deps dirs $(TARGET)
 
+# Test target
+test: check-deps dirs $(TEST_TARGET)
+
 # Check dependencies
 check-deps:
 	@if [ "$(SDL2_AVAILABLE)" != "yes" ] || [ "$(SDL2_IMAGE_AVAILABLE)" != "yes" ]; then \
@@ -57,10 +67,15 @@ dirs:
 	@mkdir -p $(BUILD_DIR)/ocr
 
 # Linking
-$(TARGET): $(OBJECTS)
+$(TARGET): $(MAIN_OBJECTS)
 	@echo "Linking $@..."
-	$(CC) $(OBJECTS) -o $@ $(SDL_LIBS) $(LDFLAGS)
+	$(CC) $(MAIN_OBJECTS) -o $@ $(SDL_LIBS) $(LDFLAGS)
 	@echo "Build successful! Binary: $@"
+
+$(TEST_TARGET): $(TEST_OBJECTS) $(filter-out %/main.o, $(MAIN_OBJECTS))
+	@echo "Linking test $@..."
+	$(CC) $(TEST_OBJECTS) $(filter-out %/main.o, $(MAIN_OBJECTS)) -o $@ $(SDL_LIBS) $(LDFLAGS)
+	@echo "Test build successful! Binary: $@"
 
 # Compilation with dependency generation
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
@@ -96,6 +111,11 @@ run: $(TARGET)
 	@echo "Running $(PROJECT_NAME)..."
 	./$(TARGET)
 
+# Run the test program
+run-test: $(TEST_TARGET)
+	@echo "Running word detection test..."
+	./$(TEST_TARGET)
+
 # Debug build
 debug: CFLAGS += -DDEBUG -O0
 debug: all
@@ -123,9 +143,11 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  all           - Build the project (default)"
+	@echo "  test          - Build the word detection test program"
 	@echo "  clean         - Remove all build artifacts"
 	@echo "  rebuild       - Clean and rebuild everything"
-	@echo "  run           - Build and run the program"
+	@echo "  run           - Build and run the main program"
+	@echo "  run-test      - Build and run the word detection test"
 	@echo "  debug         - Build with debug flags"
 	@echo "  release       - Build optimized release"
 	@echo "  install-deps  - Install SDL2 dependencies"
@@ -137,4 +159,4 @@ help:
 	@echo "Source directory: $(SRC_DIR)"
 
 # Phony targets
-.PHONY: all clean rebuild run debug release install-deps check-deps dirs info help
+.PHONY: all test clean rebuild run run-test debug release install-deps check-deps dirs info help

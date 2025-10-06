@@ -34,7 +34,6 @@ int has_proper_grid_lines(const Image* grid_region) {
     }
 
     // Filter contours by length - they should span at least 60% of the grid width/height
-    // (very lenient for thin lines that might be broken up)
     double min_horiz_length = grid_region->width * 0.6;
     double min_vert_length = grid_region->height * 0.6;
 
@@ -98,12 +97,12 @@ void detect_grid_lines(const Image* binary_grid, Image* horizontal_lines, Image*
     cpy_image(binary_grid, vertical_lines);
 
     // Detect horizontal lines: erode with horizontal kernel, then dilate
-    morphologyEx(horizontal_lines, MORPH_ERODE, horiz_kernel); // MORPH_ERODE
-    morphologyEx(horizontal_lines, MORPH_DILATE, horiz_kernel); // MORPH_DILATE
+    morphologyEx(horizontal_lines, MORPH_ERODE, horiz_kernel, 1); // MORPH_ERODE
+    morphologyEx(horizontal_lines, MORPH_DILATE, horiz_kernel, 1); // MORPH_DILATE
 
     // Detect vertical lines: erode with vertical kernel, then dilate
-    morphologyEx(vertical_lines, MORPH_ERODE, vert_kernel); // MORPH_ERODE
-    morphologyEx(vertical_lines, MORPH_DILATE, vert_kernel); // MORPH_DILATE
+    morphologyEx(vertical_lines, MORPH_ERODE, vert_kernel, 1); // MORPH_ERODE
+    morphologyEx(vertical_lines, MORPH_DILATE, vert_kernel, 1); // MORPH_DILATE
 
     freeStructuringElement(horiz_kernel);
     freeStructuringElement(vert_kernel);

@@ -63,7 +63,14 @@ void gaussian_blur(Image* image, uint8_t kernel_size, float sigma) {
         return;
     }
 
-    float* kernel = create_gaussian_kernel(kernel_size, sigma);
+    // If sigma is 0, calculate it automatically like OpenCV does
+    float actual_sigma = sigma;
+    if (actual_sigma == 0.0f) {
+        actual_sigma = 0.3f * ((kernel_size - 1) * 0.5f - 1.0f) + 0.8f;
+        if (actual_sigma < 0.0f) actual_sigma = 0.8f; // Ensure minimum sigma
+    }
+
+    float* kernel = create_gaussian_kernel(kernel_size, actual_sigma);
     if (!kernel) {
         fprintf(stderr, "Error: Failed to create Gaussian kernel\n");
         return;
@@ -105,7 +112,7 @@ void gaussian_blur(Image* image, uint8_t kernel_size, float sigma) {
     }
     free(kernel);
 
-    printf("Applied Gaussian blur (kernel_size=%d, sigma=%.2f)\n", kernel_size, sigma);
+    printf("Applied Gaussian blur (kernel_size=%d, sigma=%.2f)\n", kernel_size, actual_sigma);
 }
 
 
@@ -464,7 +471,7 @@ static void dilate(const uint8_t* src, uint8_t* dst, int width, int height, Stru
     !Warning: Only works on grayscale images. Modifies the image in place.
     Resource: https://docs.opencv.org/4.x/d4/d86/group__imgproc__filter.html
 */
-void morphologyEx(Image* image, MorphologicalOperation operation, StructuringElement* kernel) {
+void morphologyEx(Image* image, MorphologicalOperation operation, StructuringElement* kernel, int iterations) {
     if (!image) {
         fprintf(stderr, "Error: Invalid image for morphologyEx\n");
         return;
@@ -482,6 +489,11 @@ void morphologyEx(Image* image, MorphologicalOperation operation, StructuringEle
 
     if (operation < MORPH_OPEN || operation > MORPH_DILATE) {
         fprintf(stderr, "Error: Invalid operation type (must be 0-3)\n");
+        return;
+    }
+
+    if (iterations <= 0) {
+        fprintf(stderr, "Error: Iterations must be positive\n");
         return;
     }
 
@@ -503,35 +515,38 @@ void morphologyEx(Image* image, MorphologicalOperation operation, StructuringEle
 
     const char* operation_names[] = {"open", "close", "erode", "dilate"};
 
-    switch (operation) {
+    for (int iter = 0; iter < iterations; iter++) {
+        switch (operation) {
         case MORPH_OPEN:  // MORPH_OPEN: erode then dilate
             erode(temp1, temp2, width, height, kernel);
             dilate(temp2, temp1, width, height, kernel);
-            memcpy(image->gray_pixels, temp1, total_pixels * sizeof(uint8_t));
             break;
 
         case MORPH_CLOSE:  // MORPH_CLOSE: dilate then erode
             dilate(temp1, temp2, width, height, kernel);
             erode(temp2, temp1, width, height, kernel);
-            memcpy(image->gray_pixels, temp1, total_pixels * sizeof(uint8_t));
             break;
 
         case MORPH_ERODE:  // MORPH_ERODE: erode only
             erode(temp1, temp2, width, height, kernel);
-            memcpy(image->gray_pixels, temp2, total_pixels * sizeof(uint8_t));
+            memcpy(temp1, temp2, total_pixels * sizeof(uint8_t));
             break;
 
         case MORPH_DILATE:  // MORPH_DILATE: dilate only
             dilate(temp1, temp2, width, height, kernel);
-            memcpy(image->gray_pixels, temp2, total_pixels * sizeof(uint8_t));
+            memcpy(temp1, temp2, total_pixels * sizeof(uint8_t));
             break;
+        }
     }
+
+    // Copy final result back to image
+    memcpy(image->gray_pixels, temp1, total_pixels * sizeof(uint8_t));
 
     free(temp1);
     free(temp2);
 
-    printf("Applied morphological %s operation (kernel: %dx%d)\n",
-           operation_names[operation], kernel->cols, kernel->rows);
+    printf("Applied morphological %s operation (kernel: %dx%d, iterations: %d)\n",
+           operation_names[operation], kernel->cols, kernel->rows, iterations);
 }
 
 /*
@@ -575,6 +590,43 @@ void add(Image* src1, Image* src2, Image* dst) {
     }
 
     printf("Applied pixel-wise addition with saturation (%dx%d)\n", width, height);
+}
+
+/*
+    Bitwise OR operation for combining images pixel-wise.
+    !Warning: All images must be grayscale and have the same dimensions.
+*/
+void bitwise_or(const Image* src1, const Image* src2, Image* dst) {
+    if (!src1 || !src2 || !dst) {
+        fprintf(stderr, "Error: Invalid image(s) for bitwise_or operation\n");
+        return;
+    }
+
+    if (!src1->is_grayscale || !src2->is_grayscale || !dst->is_grayscale) {
+        fprintf(stderr, "Error: All images must be grayscale for bitwise_or\n");
+        return;
+    }
+
+    if (!src1->gray_pixels || !src2->gray_pixels || !dst->gray_pixels) {
+        fprintf(stderr, "Error: Images must have pixel data for bitwise_or\n");
+        return;
+    }
+
+    if (src1->width != src2->width || src1->height != src2->height ||
+        src1->width != dst->width || src1->height != dst->height) {
+        fprintf(stderr, "Error: All images must have the same dimensions for bitwise_or\n");
+        return;
+    }
+
+    int width = src1->width;
+    int height = src1->height;
+    int total_pixels = width * height;
+
+    for (int i = 0; i < total_pixels; i++) {
+        dst->gray_pixels[i] = src1->gray_pixels[i] | src2->gray_pixels[i];
+    }
+
+    printf("Applied bitwise OR operation (%dx%d)\n", width, height);
 }
 
 /*
@@ -738,8 +790,8 @@ Contours* findContours(const Image* image, int mode) {
         return NULL;
     }
 
-    if (mode != 0) {
-        fprintf(stderr, "Error: Only RETR_EXTERNAL (mode=0) is currently supported\n");
+    if (mode != 0 && mode != 1) {
+        fprintf(stderr, "Error: Only RETR_EXTERNAL (mode=0) and RETR_LIST (mode=1) are supported\n");
         return NULL;
     }
 

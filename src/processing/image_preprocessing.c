@@ -25,7 +25,7 @@ int load_and_preprocess_image(const char* image_path, Image* image) {
     // Apply morphological erosion to clean up
     StructuringElement* erode_kernel = getStructuringElement(1, 2, 2); // MORPH_CROSS, 2x2
     if (erode_kernel) {
-        morphologyEx(image, MORPH_ERODE, erode_kernel); // MORPH_ERODE
+        morphologyEx(image, MORPH_ERODE, erode_kernel, 1); // MORPH_ERODE
         freeStructuringElement(erode_kernel);
         save_image("step_03_5_eroded.png", image);
     }
@@ -98,7 +98,7 @@ int process_grid_for_ocr(Image* grid_image) {
 
     StructuringElement* cleanup_kernel = getStructuringElement(0, 2, 2);
     if (cleanup_kernel) {
-        morphologyEx(grid_image, MORPH_CLOSE, cleanup_kernel);
+        morphologyEx(grid_image, MORPH_CLOSE, cleanup_kernel, 1);
         freeStructuringElement(cleanup_kernel);
         save_image("step_07_cleaned_grid.png", grid_image);
     }
