@@ -111,3 +111,15 @@ int findMaxAreaContour(const Contours* contours);
     Find the bounding rectangle that contains all given rectangles with padding.
 */
 int getBoundingRectOfRects(const Rect* rects, int count, int padding, int image_width, int image_height, Rect* result);
+
+/*
+    Apply adaptive denoising based on estimated noise level to preserve thin lines.
+    !Warning: Only works on grayscale images. Modifies the image in place.
+*/
+void adaptive_denoise(Image* image);
+
+/*
+    Apply adaptive morphological cleaning that preserves thin lines.
+    !Warning: Only works on grayscale images. Modifies the image in place.
+*/
+void adaptive_morphological_clean(Image* image);

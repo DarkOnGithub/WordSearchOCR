@@ -16,19 +16,16 @@ int load_and_preprocess_image(const char* image_path, Image* image) {
     convert_to_grayscale(image);
     save_image("step_01_grayscale.png", image);
 
-    gaussian_blur(image, 3, 1.0);
-    save_image("step_02_blur.png", image);
+    // Apply adaptive denoising based on noise level
+    adaptive_denoise(image);
+    save_image("step_02_adaptive_denoise.png", image);
 
     adaptiveThreshold(image, 255, 1, 1, 11, 2.0);
     save_image("step_03_threshold.png", image);
 
-    // Apply morphological erosion to clean up
-    StructuringElement* erode_kernel = getStructuringElement(1, 2, 2); // MORPH_CROSS, 2x2
-    if (erode_kernel) {
-        morphologyEx(image, MORPH_ERODE, erode_kernel, 1); // MORPH_ERODE
-        freeStructuringElement(erode_kernel);
-        save_image("step_03_5_eroded.png", image);
-    }
+    // Apply adaptive morphological cleaning that preserves thin lines
+    adaptive_morphological_clean(image);
+    save_image("step_03_5_morph_cleaned.png", image);
 
     return 1;
 }
