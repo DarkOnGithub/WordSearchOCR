@@ -21,12 +21,10 @@ void load_image(const char* path, Image* image) {
         return;
     }
 
-    // Ensure the pixbuf is in RGBA format
     GdkPixbuf* rgba_pixbuf = NULL;
     if (gdk_pixbuf_get_has_alpha(pixbuf) && gdk_pixbuf_get_n_channels(pixbuf) == 4) {
         rgba_pixbuf = pixbuf;
     } else {
-        // Convert to RGBA format
         rgba_pixbuf = gdk_pixbuf_add_alpha(pixbuf, FALSE, 0, 0, 0);
         if (!rgba_pixbuf) {
             fprintf(stderr, "Error converting image to RGBA format\n");
@@ -48,7 +46,6 @@ void load_image(const char* path, Image* image) {
         return;
     }
 
-    // GdkPixbuf stores pixels in RGBA order
     guchar* src_pixels = gdk_pixbuf_get_pixels(rgba_pixbuf);
     int rowstride = gdk_pixbuf_get_rowstride(rgba_pixbuf);
 
@@ -165,13 +162,13 @@ void save_image(const char* path, Image* image) {
     pixbuf = gdk_pixbuf_new_from_data(
         pixbuf_pixels,
         GDK_COLORSPACE_RGB,
-        TRUE,  // has_alpha
-        8,     // bits_per_sample
+        TRUE,
+        8,
         image->width,
         image->height,
-        image->width * 4,  // rowstride
-        NULL,  // destroy_fn (we'll free manually)
-        NULL   // destroy_fn_data
+        image->width * 4,
+        NULL,
+        NULL
     );
 
     if (!pixbuf) {
