@@ -2,8 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_image.h>
+#include <gtk/gtk.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 
 void load_image(const char* path, Image* image) {
     if (!path || !image) {
@@ -13,44 +13,57 @@ void load_image(const char* path, Image* image) {
 
     memset(image, 0, sizeof(Image));
 
-    SDL_Surface* loaded_surface = NULL;
-
-    loaded_surface = IMG_Load(path);
-    if (!loaded_surface) {
-        fprintf(stderr, "Error loading image %s: %s\n", path, IMG_GetError());
-        return;
-    }
-    SDL_Surface* optimized_surface = SDL_ConvertSurfaceFormat(loaded_surface,
-                                                              SDL_PIXELFORMAT_RGBA32, 0);
-    SDL_FreeSurface(loaded_surface);
-
-    if (!optimized_surface) {
-        fprintf(stderr, "Error optimizing surface: %s\n", SDL_GetError());
+    GError* error = NULL;
+    GdkPixbuf* pixbuf = gdk_pixbuf_new_from_file(path, &error);
+    if (!pixbuf) {
+        fprintf(stderr, "Error loading image %s: %s\n", path, error->message);
+        g_error_free(error);
         return;
     }
 
-    image->width = optimized_surface->w;
-    image->height = optimized_surface->h;
+    // Ensure the pixbuf is in RGBA format
+    GdkPixbuf* rgba_pixbuf = NULL;
+    if (gdk_pixbuf_get_has_alpha(pixbuf) && gdk_pixbuf_get_n_channels(pixbuf) == 4) {
+        rgba_pixbuf = pixbuf;
+    } else {
+        // Convert to RGBA format
+        rgba_pixbuf = gdk_pixbuf_add_alpha(pixbuf, FALSE, 0, 0, 0);
+        if (!rgba_pixbuf) {
+            fprintf(stderr, "Error converting image to RGBA format\n");
+            g_object_unref(pixbuf);
+            return;
+        }
+        g_object_unref(pixbuf);
+    }
+
+    image->width = gdk_pixbuf_get_width(rgba_pixbuf);
+    image->height = gdk_pixbuf_get_height(rgba_pixbuf);
     image->is_grayscale = false;
 
     size_t pixel_count = image->width * image->height;
     image->rgba_pixels = (uint32_t*)malloc(pixel_count * sizeof(uint32_t));
     if (!image->rgba_pixels) {
         fprintf(stderr, "Error: Failed to allocate pixel buffer\n");
-        SDL_FreeSurface(optimized_surface);
+        g_object_unref(rgba_pixbuf);
         return;
     }
 
-    uint32_t* src_pixels = (uint32_t*)optimized_surface->pixels;
-    for (size_t i = 0; i < pixel_count; i++) {
-        uint32_t abgr = src_pixels[i];
-        uint8_t a = (abgr >> 24) & 0xFF;
-        uint8_t b = (abgr >> 16) & 0xFF;
-        uint8_t g = (abgr >> 8) & 0xFF;
-        uint8_t r = abgr & 0xFF;
-        image->rgba_pixels[i] = (r << 24) | (g << 16) | (b << 8) | a;
+    // GdkPixbuf stores pixels in RGBA order
+    guchar* src_pixels = gdk_pixbuf_get_pixels(rgba_pixbuf);
+    int rowstride = gdk_pixbuf_get_rowstride(rgba_pixbuf);
+
+    for (int y = 0; y < image->height; y++) {
+        for (int x = 0; x < image->width; x++) {
+            int src_idx = y * rowstride + x * 4;
+            uint8_t r = src_pixels[src_idx];
+            uint8_t g = src_pixels[src_idx + 1];
+            uint8_t b = src_pixels[src_idx + 2];
+            uint8_t a = src_pixels[src_idx + 3];
+            image->rgba_pixels[y * image->width + x] = (r << 24) | (g << 16) | (b << 8) | a;
+        }
     }
-    SDL_FreeSurface(optimized_surface);
+
+    g_object_unref(rgba_pixbuf);
 
     printf("Successfully loaded image: %s (%dx%d)\n", path, image->width, image->height);
 }
@@ -106,7 +119,7 @@ void save_image(const char* path, Image* image) {
         return;
     }
 
-    SDL_Surface* temp_surface = NULL;
+    GdkPixbuf* pixbuf = NULL;
     uint32_t* rgba_pixels = NULL;
     bool temp_pixels_allocated = false;
 
@@ -128,32 +141,56 @@ void save_image(const char* path, Image* image) {
         rgba_pixels = image->rgba_pixels;
     }
 
-    temp_surface = SDL_CreateRGBSurfaceFrom(
-        rgba_pixels,
-        image->width,
-        image->height,
-        32,
-        image->width * 4,
-        0xFF000000,
-        0x00FF0000,
-        0x0000FF00,
-        0x000000FF
-    );
-
-    if (!temp_surface) {
-        fprintf(stderr, "Error creating surface for save: %s\n", SDL_GetError());
+    // Create pixel data in RGBA format for GdkPixbuf
+    guchar* pixbuf_pixels = (guchar*)malloc(image->width * image->height * 4);
+    if (!pixbuf_pixels) {
+        fprintf(stderr, "Error: Failed to allocate pixel buffer for pixbuf\n");
         if (temp_pixels_allocated) free(rgba_pixels);
         return;
     }
 
-    int result = IMG_SavePNG(temp_surface, path);
-    if (result != 0) {
-        fprintf(stderr, "Error saving image %s: %s\n", path, IMG_GetError());
+    for (int i = 0; i < image->width * image->height; i++) {
+        uint32_t pixel = rgba_pixels[i];
+        uint8_t r = (pixel >> 24) & 0xFF;
+        uint8_t g = (pixel >> 16) & 0xFF;
+        uint8_t b = (pixel >> 8) & 0xFF;
+        uint8_t a = pixel & 0xFF;
+
+        pixbuf_pixels[i * 4] = r;
+        pixbuf_pixels[i * 4 + 1] = g;
+        pixbuf_pixels[i * 4 + 2] = b;
+        pixbuf_pixels[i * 4 + 3] = a;
+    }
+
+    pixbuf = gdk_pixbuf_new_from_data(
+        pixbuf_pixels,
+        GDK_COLORSPACE_RGB,
+        TRUE,  // has_alpha
+        8,     // bits_per_sample
+        image->width,
+        image->height,
+        image->width * 4,  // rowstride
+        NULL,  // destroy_fn (we'll free manually)
+        NULL   // destroy_fn_data
+    );
+
+    if (!pixbuf) {
+        fprintf(stderr, "Error creating pixbuf for save\n");
+        free(pixbuf_pixels);
+        if (temp_pixels_allocated) free(rgba_pixels);
+        return;
+    }
+
+    GError* error = NULL;
+    if (!gdk_pixbuf_savev(pixbuf, path, "png", NULL, NULL, &error)) {
+        fprintf(stderr, "Error saving image %s: %s\n", path, error->message);
+        g_error_free(error);
     } else {
         printf("Successfully saved image: %s\n", path);
     }
 
-    SDL_FreeSurface(temp_surface);
+    g_object_unref(pixbuf);
+    free(pixbuf_pixels);
     if (temp_pixels_allocated) free(rgba_pixels);
 }
 

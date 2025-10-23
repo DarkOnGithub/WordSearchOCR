@@ -25,21 +25,16 @@ DEPS = $(OBJECTS:.o=.d)
 # Test targets
 TEST_TARGET = $(BUILD_DIR)/word_detection_test
 
-# SDL2 detection and configuration
-SDL2_AVAILABLE := $(shell pkg-config --exists sdl2 2>/dev/null && echo "yes" || echo "no")
-SDL2_IMAGE_AVAILABLE := $(shell pkg-config --exists SDL2_image 2>/dev/null && echo "yes" || echo "no")
+# GTK3 detection and configuration
+GTK3_AVAILABLE := $(shell pkg-config --exists gtk+-3.0 2>/dev/null && echo "yes" || echo "no")
 
-# Set SDL flags if available
-ifeq ($(SDL2_AVAILABLE),yes)
-    SDL_CFLAGS = $(shell pkg-config --cflags sdl2)
-    SDL_LIBS = $(shell pkg-config --libs sdl2)
-    ifeq ($(SDL2_IMAGE_AVAILABLE),yes)
-        SDL_CFLAGS += $(shell pkg-config --cflags SDL2_image)
-        SDL_LIBS += $(shell pkg-config --libs SDL2_image)
-    endif
+# Set GTK flags if available
+ifeq ($(GTK3_AVAILABLE),yes)
+    GTK_CFLAGS = $(shell pkg-config --cflags gtk+-3.0)
+    GTK_LIBS = $(shell pkg-config --libs gtk+-3.0)
 else
-    SDL_CFLAGS =
-    SDL_LIBS =
+    GTK_CFLAGS =
+    GTK_LIBS =
 endif
 
 # Default target
@@ -50,13 +45,13 @@ test: check-deps dirs $(TEST_TARGET)
 
 # Check dependencies
 check-deps:
-	@if [ "$(SDL2_AVAILABLE)" != "yes" ] || [ "$(SDL2_IMAGE_AVAILABLE)" != "yes" ]; then \
+	@if [ "$(GTK3_AVAILABLE)" != "yes" ]; then \
 		echo "Error: Missing required dependencies."; \
-		echo "Required: libsdl2-dev libsdl2-image-dev"; \
+		echo "Required: libgtk-3-dev"; \
 		echo "Run 'make install-deps' to install them."; \
 		exit 1; \
 	fi
-	@echo "Dependencies OK: SDL2=$(SDL2_AVAILABLE), SDL2_image=$(SDL2_IMAGE_AVAILABLE)"
+	@echo "Dependencies OK: GTK3=$(GTK3_AVAILABLE)"
 
 # Create build directories
 dirs:
@@ -69,32 +64,32 @@ dirs:
 # Linking
 $(TARGET): $(MAIN_OBJECTS)
 	@echo "Linking $@..."
-	$(CC) $(MAIN_OBJECTS) -o $@ $(SDL_LIBS) $(LDFLAGS)
+	$(CC) $(MAIN_OBJECTS) -o $@ $(GTK_LIBS) $(LDFLAGS)
 	@echo "Build successful! Binary: $@"
 
 $(TEST_TARGET): $(TEST_OBJECTS) $(filter-out %/main.o, $(MAIN_OBJECTS))
 	@echo "Linking test $@..."
-	$(CC) $(TEST_OBJECTS) $(filter-out %/main.o, $(MAIN_OBJECTS)) -o $@ $(SDL_LIBS) $(LDFLAGS)
+	$(CC) $(TEST_OBJECTS) $(filter-out %/main.o, $(MAIN_OBJECTS)) -o $@ $(GTK_LIBS) $(LDFLAGS)
 	@echo "Test build successful! Binary: $@"
 
 # Compilation with dependency generation
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -MMD -MP -c $< -o $@
+	$(CC) $(CFLAGS) $(GTK_CFLAGS) -MMD -MP -c $< -o $@
 
 # Include generated dependencies
 -include $(DEPS)
 
 # Installation targets
 install-deps:
-	@echo "Installing SDL2 and SDL2_image development libraries..."
+	@echo "Installing GTK3 development libraries..."
 	@command -v apt-get >/dev/null 2>&1 && { \
 		sudo apt-get update && \
-		sudo apt-get install -y libsdl2-dev libsdl2-image-dev; \
+		sudo apt-get install -y libgtk-3-dev; \
 	} || { \
 		echo "Error: apt-get not found."; \
-		echo "Please install SDL2 manually."; \
+		echo "Please install GTK3 manually."; \
 		exit 1; \
 	}
 
@@ -131,8 +126,7 @@ info:
 	@echo "Target: $(TARGET)"
 	@echo "Sources: $(words $(SOURCES))"
 	@echo "Objects: $(words $(OBJECTS))"
-	@echo "SDL2: $(SDL2_AVAILABLE)"
-	@echo "SDL2_image: $(SDL2_IMAGE_AVAILABLE)"
+	@echo "GTK3: $(GTK3_AVAILABLE)"
 	@echo "Compiler: $(CC)"
 	@echo "CFLAGS: $(CFLAGS)"
 	@echo "LDFLAGS: $(LDFLAGS)"
@@ -150,7 +144,7 @@ help:
 	@echo "  run-test      - Build and run the word detection test"
 	@echo "  debug         - Build with debug flags"
 	@echo "  release       - Build optimized release"
-	@echo "  install-deps  - Install SDL2 dependencies"
+	@echo "  install-deps  - Install GTK3 dependencies"
 	@echo "  check-deps    - Check if dependencies are installed"
 	@echo "  info          - Show build information"
 	@echo "  help          - Show this help message"
