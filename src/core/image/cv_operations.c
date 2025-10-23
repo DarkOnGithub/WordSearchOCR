@@ -1054,7 +1054,7 @@ static double estimate_noise_level(const Image* image) {
 
     double total_variance = 0.0;
     int sample_count = 0;
-    int step = 10; // Sample every 10th pixel for performance
+    int step = 10;
 
     for (int y = step; y < image->height - step; y += step) {
         for (int x = step; x < image->width - step; x += step) {
@@ -1103,8 +1103,7 @@ static double estimate_noise_level(const Image* image) {
 
     total_variance /= sample_count;
 
-    // Normalize to 0-1 range (typical variance values for 8-bit images)
-    double noise_level = total_variance / 1000.0; // Adjust divisor based on expected variance range
+    double noise_level = total_variance / 1000.0;
     return (noise_level > 1.0) ? 1.0 : noise_level;
 }
 
@@ -1121,21 +1120,13 @@ void adaptive_denoise(Image* image) {
     double noise_level = estimate_noise_level(image);
     printf("Estimated noise level: %.3f\n", noise_level);
 
-    // Adaptive denoising strategy:
-    // - Low noise (< 0.1): minimal blur (kernel_size=3, sigma=0.5)
-    // - Medium noise (0.1-0.3): moderate blur (kernel_size=3, sigma=1.0)
-    // - High noise (> 0.3): stronger blur (kernel_size=5, sigma=1.5) but still conservative
-
     if (noise_level < 0.1) {
-        // Very light denoising to preserve thin lines
         gaussian_blur(image, 3, 0.5);
         printf("Applied light denoising (noise_level < 0.1)\n");
     } else if (noise_level < 0.3) {
-        // Moderate denoising
         gaussian_blur(image, 3, 1.0);
         printf("Applied moderate denoising (0.1 <= noise_level < 0.3)\n");
     } else {
-        // Stronger denoising but still conservative to preserve lines
         gaussian_blur(image, 5, 1.5);
         printf("Applied stronger denoising (noise_level >= 0.3)\n");
     }
@@ -1153,14 +1144,10 @@ void adaptive_morphological_clean(Image* image) {
 
     double noise_level = estimate_noise_level(image);
 
-    // Conservative morphological operations to preserve thin lines
-    // Use very small kernels (2x2) to avoid removing thin features
 
-    if (noise_level > 0.05) { // Only apply if there's some noise
-        // Create a small cross-shaped kernel for minimal cleaning
+    if (noise_level > 0.05) {
         StructuringElement* kernel = getStructuringElement(MORPH_CROSS, 2, 2);
         if (kernel) {
-            // Apply morphological opening to remove small noise while preserving lines
             morphologyEx(image, MORPH_OPEN, kernel, 1);
             freeStructuringElement(kernel);
             printf("Applied morphological opening for noise reduction (kernel 2x2 cross)\n");

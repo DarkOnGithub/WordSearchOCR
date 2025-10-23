@@ -16,14 +16,12 @@ int load_and_preprocess_image(const char* image_path, Image* image) {
     convert_to_grayscale(image);
     save_image("step_01_grayscale.png", image);
 
-    // Apply adaptive denoising based on noise level
     adaptive_denoise(image);
     save_image("step_02_adaptive_denoise.png", image);
 
     adaptiveThreshold(image, 255, 1, 1, 11, 2.0);
     save_image("step_03_threshold.png", image);
 
-    // Apply adaptive morphological cleaning that preserves thin lines
     adaptive_morphological_clean(image);
     save_image("step_03_5_morph_cleaned.png", image);
 
@@ -65,7 +63,6 @@ int extract_grid_region(const Image* processed_image, const Image* original_imag
     printf("Grid contour bounding rect: x=%d, y=%d, w=%d, h=%d (area=%d)\n",
            x, y, w, h, area);
 
-    // Extract the grid region from the original image
     extract_rectangle(original_image, x, y, w, h, grid_image);
     convert_to_grayscale(grid_image);
     save_image("step_05_grid_extraction.png", grid_image);

@@ -255,3 +255,4 @@ void translateContours(Contours* contours, int offset_x, int offset_y) {
         }
     }
 }
+
