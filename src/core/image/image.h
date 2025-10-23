@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <SDL2/SDL.h>
 #include <string.h>
-
+#include "../../nn/tensor.h"
 struct Contour;
 
 typedef struct Image {
@@ -20,5 +20,5 @@ void save_image(const char* path, Image* image);
 void cpy_image(const Image* image, Image* image_cpy);
 void draw_rectangle(Image* image, int x, int y, int width, int height, bool fill, int thickness, uint32_t color);
 void extract_rectangle(const Image* image, int x, int y, int width, int height, Image* extracted_image);
-//void to_tensor(Image* image, Tensor* tensor);
+Tensor* to_tensor(Image* image);
 void free_image(Image* image);

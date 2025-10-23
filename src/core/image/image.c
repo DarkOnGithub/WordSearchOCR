@@ -157,6 +157,35 @@ void save_image(const char* path, Image* image) {
     if (temp_pixels_allocated) free(rgba_pixels);
 }
 
+Tensor* to_tensor(Image* image) {
+    if (!image) {
+        fprintf(stderr, "Error: Invalid parameters to to_tensor\n");
+        return NULL;
+    }
+
+    Tensor* tensor = tensor_create(1, image->is_grayscale ? 1 : 4, image->width, image->height);
+    if (image->is_grayscale) {
+        for (int i = 0; i < image->width * image->height; i++) {
+            tensor->data[i] = image->gray_pixels[i] / 255.0f;
+        }
+    } else {
+        int pixel_count = image->width * image->height;
+        for (int i = 0; i < pixel_count; i++) {
+            uint32_t rgba = image->rgba_pixels[i];
+            uint8_t r = (rgba >> 24) & 0xFF;
+            uint8_t g = (rgba >> 16) & 0xFF;
+            uint8_t b = (rgba >> 8) & 0xFF;
+            uint8_t a = rgba & 0xFF;
+
+            tensor->data[i] = r / 255.0f;
+            tensor->data[i + pixel_count] = g / 255.0f;
+            tensor->data[i + 2 * pixel_count] = b / 255.0f;
+            tensor->data[i + 3 * pixel_count] = a / 255.0f;
+        }
+    }
+    return tensor;
+}
+
 void cpy_image(const Image* image, Image* image_cpy) {
     if (!image || !image_cpy) {
         fprintf(stderr, "Error: Invalid parameters to cpy_image\n");
