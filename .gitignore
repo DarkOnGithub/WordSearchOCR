@@ -56,3 +56,25 @@ dkms.conf
 
 wordsearch
 build
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.tif
+*.svg
+*.webp
+*.ico
+!images/*.png
+!images/*.jpg
+!images/*.jpeg
+!images/*.gif
+!images/*.bmp
+!images/*.tiff
+!images/*.tif
+!images/*.svg
+!images/*.webp
+!images/*.ico
