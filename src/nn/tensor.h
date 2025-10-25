@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdbool.h>
 #pragma once
 
 typedef struct {
@@ -21,17 +22,22 @@ void tensor_free(Tensor* tensor);
 void tensor_print(Tensor* tensor);
 Tensor* tensor_flatten(Tensor* tensor);
 Tensor* tensor_reshape(Tensor* tensor, int batch_size, int channels, int height, int width);
-
+Tensor* tensor_sum(Tensor* a, int axis, bool keep_dim);
+Tensor* tensor_dot_product(Tensor* a, Tensor* b, int axis);
+Tensor* tensor_matmul(Tensor* a, Tensor* b, Tensor* bias);
 
 //Operations
 Tensor* tensor_add(Tensor* a, Tensor* b);
 Tensor* tensor_sub(Tensor* a, Tensor* b);
 Tensor* tensor_mul(Tensor* a, Tensor* b);
 
+
 // Element-wise operations
 Tensor* tensor_square(Tensor* a);
 Tensor* tensor_sqrt(Tensor* a);
 Tensor* tensor_div(Tensor* a, Tensor* b);
+Tensor* tensor_exp(Tensor* a);
+
 
 // Scalar operations
 Tensor* tensor_mul_scalar(Tensor* a, float scalar);
