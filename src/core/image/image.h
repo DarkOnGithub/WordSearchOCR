@@ -1,7 +1,9 @@
 #pragma once
 
 #include <stdbool.h>
-#include <SDL2/SDL.h>
+#include <stdint.h>
+#include <gtk/gtk.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 #include <string.h>
 #include "../../nn/tensor.h"
 struct Contour;

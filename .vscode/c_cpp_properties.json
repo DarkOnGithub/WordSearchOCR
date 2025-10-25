@@ -4,9 +4,34 @@
       "name": "WSL",
       "includePath": [
         "${workspaceFolder}/**",
-        "/usr/include/SDL2"
+        "/usr/include",
+        "/usr/include/at-spi2-atk/2.0",
+        "/usr/include/at-spi-2.0",
+        "/usr/include/dbus-1.0",
+        "/usr/lib/x86_64-linux-gnu/dbus-1.0/include",
+        "/usr/include/gio-unix-2.0",
+        "/usr/include/cairo",
+        "/usr/include/pango-1.0",
+        "/usr/include/harfbuzz",
+        "/usr/include/fribidi",
+        "/usr/include/atk-1.0",
+        "/usr/include/pixman-1",
+        "/usr/include/uuid",
+        "/usr/include/freetype2",
+        "/usr/include/gdk-pixbuf-2.0",
+        "/usr/include/libpng16",
+        "/usr/include/x86_64-linux-gnu",
+        "/usr/include/libmount",
+        "/usr/include/blkid",
+        "/usr/include/glib-2.0",
+        "/usr/lib/x86_64-linux-gnu/glib-2.0/include"
       ],
-      "defines": [],
+      "defines": [
+        "_THREAD_SAFE"
+      ],
+      "compilerArgs": [
+        "-pthread"
+      ],
       "compilerPath": "/usr/bin/gcc",
       "cStandard": "c99",
       "cppStandard": "c++20",
