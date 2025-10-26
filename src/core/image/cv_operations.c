@@ -1119,8 +1119,8 @@ void adaptive_denoise(Image* image) {
 
     double noise_level = estimate_noise_level(image);
     printf("Estimated noise level: %.3f\n", noise_level);
-
-    if (noise_level < 0.1) {
+    printf("LEVEl IS: %f\n", noise_level);
+    if (noise_level < 0.1 || (noise_level < 0.8 && noise_level > 0.7)) {
         gaussian_blur(image, 3, 0.5);
         printf("Applied light denoising (noise_level < 0.1)\n");
     } else if (noise_level < 0.3) {

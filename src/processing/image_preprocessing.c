@@ -2,7 +2,7 @@
 #include "./contour_analysis.h"
 #include <stdio.h>
 
-int load_and_preprocess_image(const char* image_path, Image* image) {
+int load_and_preprocess_image(const char* image_path, Image* image, CreateButtonCallback create_button_callback) {
     if (!image_path || !image) {
         return 0;
     }
@@ -15,20 +15,32 @@ int load_and_preprocess_image(const char* image_path, Image* image) {
 
     convert_to_grayscale(image);
     save_image("step_01_grayscale.png", image);
+    if (create_button_callback) {
+        create_button_callback("Grayscale", "step_01_grayscale.png");
+    }
 
     adaptive_denoise(image);
     save_image("step_02_adaptive_denoise.png", image);
+    if (create_button_callback) {
+        create_button_callback("Adaptive Denoise", "step_02_adaptive_denoise.png");
+    }
 
     adaptiveThreshold(image, 255, 1, 1, 11, 2.0);
     save_image("step_03_threshold.png", image);
+    if (create_button_callback) {
+        create_button_callback("Threshold", "step_03_threshold.png");
+    }
 
     adaptive_morphological_clean(image);
     save_image("step_03_5_morph_cleaned.png", image);
+    if (create_button_callback) {
+        create_button_callback("Morphological Clean", "step_03_5_morph_cleaned.png");
+    }
 
     return 1;
 }
 
-int extract_grid_region(const Image* processed_image, const Image* original_image, Image* grid_image, Rect* grid_bounds) {
+int extract_grid_region(const Image* processed_image, const Image* original_image, Image* grid_image, Rect* grid_bounds, CreateButtonCallback create_button_callback) {
     if (!processed_image || !original_image || !grid_image) {
         return 0;
     }
@@ -66,13 +78,16 @@ int extract_grid_region(const Image* processed_image, const Image* original_imag
     extract_rectangle(original_image, x, y, w, h, grid_image);
     convert_to_grayscale(grid_image);
     save_image("step_05_grid_extraction.png", grid_image);
+    if (create_button_callback) {
+        create_button_callback("Grid Extraction", "step_05_grid_extraction.png");
+    }
 
     freeContours(grid_contours);
 
     return 1;
 }
 
-int process_grid_for_ocr(Image* grid_image) {
+int process_grid_for_ocr(Image* grid_image, CreateButtonCallback create_button_callback) {
     if (!grid_image) {
         return 0;
     }
@@ -89,12 +104,18 @@ int process_grid_for_ocr(Image* grid_image) {
     }
 
     save_image("step_06_binary_grid.png", grid_image);
+    if (create_button_callback) {
+        create_button_callback("Binary Grid", "step_06_binary_grid.png");
+    }
 
     StructuringElement* cleanup_kernel = getStructuringElement(0, 2, 2);
     if (cleanup_kernel) {
         morphologyEx(grid_image, MORPH_CLOSE, cleanup_kernel, 1);
         freeStructuringElement(cleanup_kernel);
         save_image("step_07_cleaned_grid.png", grid_image);
+        if (create_button_callback) {
+            create_button_callback("Cleaned Grid", "step_07_cleaned_grid.png");
+        }
     }
 
     return 1;

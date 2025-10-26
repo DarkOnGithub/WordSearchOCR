@@ -60,6 +60,7 @@ dirs:
 	@mkdir -p $(BUILD_DIR)/processing
 	@mkdir -p $(BUILD_DIR)/grid
 	@mkdir -p $(BUILD_DIR)/ocr
+	@mkdir -p $(BUILD_DIR)/gui
 
 # Linking
 $(TARGET): $(MAIN_OBJECTS)
@@ -147,7 +148,6 @@ help:
 	@echo "  install-deps  - Install GTK3 dependencies"
 	@echo "  check-deps    - Check if dependencies are installed"
 	@echo "  info          - Show build information"
-	@echo "  help          - Show this help message"
 	@echo ""
 	@echo "Build directory: $(BUILD_DIR)"
 	@echo "Source directory: $(SRC_DIR)"

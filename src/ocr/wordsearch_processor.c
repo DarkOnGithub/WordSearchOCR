@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int process_wordsearch_image(const char* image_path) {
+int process_wordsearch_image(const char* image_path, CreateButtonCallback create_button_callback) {
     if (!image_path) {
         fprintf(stderr, "Error: No image path provided\n");
         return 1;
@@ -14,7 +14,7 @@ int process_wordsearch_image(const char* image_path) {
     printf("Processing word search image: %s\n", image_path);
 
     Image image;
-    if (!load_and_preprocess_image(image_path, &image)) {
+    if (!load_and_preprocess_image(image_path, &image, create_button_callback)) {
         fprintf(stderr, "Failed to load and preprocess image\n");
         return 1;
     }
@@ -25,7 +25,7 @@ int process_wordsearch_image(const char* image_path) {
     // Extract the grid region
     Image grid_image;
     Rect grid_bounds;
-    if (!extract_grid_region(&image, &original_image, &grid_image, &grid_bounds)) {
+    if (!extract_grid_region(&image, &original_image, &grid_image, &grid_bounds, create_button_callback)) {
         fprintf(stderr, "Failed to extract grid region\n");
         free_image(&image);
         free_image(&original_image);
@@ -33,7 +33,7 @@ int process_wordsearch_image(const char* image_path) {
     }
 
     // Process the grid for OCR
-    if (!process_grid_for_ocr(&grid_image)) {
+    if (!process_grid_for_ocr(&grid_image, create_button_callback)) {
         fprintf(stderr, "Failed to process grid for OCR\n");
         free_image(&image);
         free_image(&original_image);
@@ -78,6 +78,12 @@ int process_wordsearch_image(const char* image_path) {
 
         save_image("step_09_horizontal_lines.png", &horizontal_lines);
         save_image("step_09_vertical_lines.png", &vertical_lines);
+
+        // Create buttons for line detection steps if callback provided
+        if (create_button_callback) {
+            create_button_callback("Horizontal Lines", "step_09_horizontal_lines.png");
+            create_button_callback("Vertical Lines", "step_09_vertical_lines.png");
+        }
 
         // Extract cell boundaries from lines
         if (!extract_cell_boundaries_from_lines(&horizontal_lines, &vertical_lines,
@@ -143,25 +149,41 @@ int process_wordsearch_image(const char* image_path) {
 
     save_image("step_08_text_region.png", &text_region);
 
+    // Create button for text region step if callback provided
+    if (create_button_callback) {
+        create_button_callback("Text Region", "step_08_text_region.png");
+    }
+
     Image debug_grid = {0};
     cpy_image(&text_region, &debug_grid);
 
     for (int i = 0; i <= num_rows; i++) {
         int y = y_boundaries[i];
-        draw_rectangle(&debug_grid, 0, y, text_region.width, 1, true, 1, 0xFF00FF00);
+        draw_rectangle(&debug_grid, 0, y, text_region.width, 1, true, 3, 0xFF00FF00);
     }
 
     for (int i = 0; i <= num_cols; i++) {
         int x = x_boundaries[i];
-        draw_rectangle(&debug_grid, x, 0, 1, text_region.height, true, 1, 0xFF00FF00);
+        draw_rectangle(&debug_grid, x, 0, 1, text_region.height, true, 3, 0xFF00FF00);
     }
 
     save_image("step_9_grid_region.png", &debug_grid);
+
+    // Create button for grid region step if callback provided
+    if (create_button_callback) {
+        create_button_callback("Grid Region", "step_9_grid_region.png");
+    }
+
     free_image(&debug_grid);
 
     // Extract individual cell images
     if (extract_cell_images(&text_region, y_boundaries, x_boundaries, num_rows, num_cols) != 0) {
         fprintf(stderr, "Failed to extract cell images\n");
+    }
+
+    // Create reconstructed grid from extracted cells
+    if (create_reconstructed_grid(num_rows, num_cols, create_button_callback) != 0) {
+        fprintf(stderr, "Failed to create reconstructed grid\n");
     }
 
     printf("Extracted grid: %d rows x %d columns\n", num_rows, num_cols);
@@ -212,6 +234,97 @@ int extract_cell_images(const Image* grid_region, const int* y_boundaries,
     return 0;
 }
 
+int create_reconstructed_grid(int num_rows, int num_cols, CreateButtonCallback create_button_callback) {
+    if (num_rows <= 0 || num_cols <= 0) {
+        return 1;
+    }
+
+    // Load the first cell to get dimensions
+    Image first_cell = {0};
+    char first_filename[256];
+    sprintf(first_filename, "cells/cell_0_0.png");
+
+    load_image(first_filename, &first_cell);
+    if (!first_cell.rgba_pixels && !first_cell.gray_pixels) {
+        fprintf(stderr, "Failed to load first cell image for dimensions\n");
+        return 1;
+    }
+
+    int cell_width = first_cell.width;
+    int cell_height = first_cell.height;
+    free_image(&first_cell);
+
+    // Add spacing between cells
+    int spacing = 5;
+    int grid_width = num_cols * cell_width + (num_cols - 1) * spacing;
+    int grid_height = num_rows * cell_height + (num_rows - 1) * spacing;
+
+    // Create white background image
+    Image reconstructed_grid = {0};
+    reconstructed_grid.width = grid_width;
+    reconstructed_grid.height = grid_height;
+    reconstructed_grid.is_grayscale = false; // Color image
+
+    size_t pixel_count = grid_width * grid_height;
+    reconstructed_grid.rgba_pixels = (uint32_t*)malloc(pixel_count * sizeof(uint32_t));
+    if (!reconstructed_grid.rgba_pixels) {
+        fprintf(stderr, "Failed to allocate memory for reconstructed grid image\n");
+        return 1;
+    }
+
+    // Fill with red color for bounds (0xFF0000FF = red)
+    for (size_t i = 0; i < pixel_count; i++) {
+        reconstructed_grid.rgba_pixels[i] = 0xFF0000FF; // Red background for bounds
+    }
+
+    // Load and place each cell
+    for (int row = 0; row < num_rows; row++) {
+        for (int col = 0; col < num_cols; col++) {
+            char filename[256];
+            sprintf(filename, "cells/cell_%d_%d.png", row, col);
+
+            Image cell = {0};
+            load_image(filename, &cell);
+            if (!cell.rgba_pixels && !cell.gray_pixels) {
+                fprintf(stderr, "Failed to load cell image: %s\n", filename);
+                continue; // Skip missing cells
+            }
+
+            // Calculate position with spacing (spacing becomes red bounds)
+            int dest_x = col * (cell_width + spacing);
+            int dest_y = row * (cell_height + spacing);
+
+            // Copy cell to reconstructed grid
+            for (int y = 0; y < cell_height && (dest_y + y) < grid_height; y++) {
+                for (int x = 0; x < cell_width && (dest_x + x) < grid_width; x++) {
+                    int dest_idx = (dest_y + y) * grid_width + (dest_x + x);
+
+                    if (cell.is_grayscale) {
+                        // Convert grayscale to RGBA
+                        uint8_t gray = cell.gray_pixels[y * cell.width + x];
+                        reconstructed_grid.rgba_pixels[dest_idx] = (gray << 24) | (gray << 16) | (gray << 8) | gray;
+                    } else {
+                        // Copy RGBA pixel directly
+                        reconstructed_grid.rgba_pixels[dest_idx] = cell.rgba_pixels[y * cell.width + x];
+                    }
+                }
+            }
+
+            free_image(&cell);
+        }
+    }
+
+    // Save the reconstructed grid
+    save_image("step_10_reconstructed_grid.png", &reconstructed_grid);
+
+    // Create button for reconstructed grid step if callback provided
+    if (create_button_callback) {
+        create_button_callback("Reconstructed Grid", "step_10_reconstructed_grid.png");
+    }
+
+    free_image(&reconstructed_grid);
+    return 0;
+}
 
 int determine_grid_dimensions_from_letters(Contours* valid_letters,
                                          int crop_offset_x, int crop_offset_y,

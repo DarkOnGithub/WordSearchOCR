@@ -191,6 +191,7 @@ void save_image(const char* path, Image* image) {
     if (temp_pixels_allocated) free(rgba_pixels);
 }
 
+/*
 Tensor* to_tensor(Image* image) {
     if (!image) {
         fprintf(stderr, "Error: Invalid parameters to to_tensor\n");
@@ -219,6 +220,7 @@ Tensor* to_tensor(Image* image) {
     }
     return tensor;
 }
+*/
 
 void cpy_image(const Image* image, Image* image_cpy) {
     if (!image || !image_cpy) {

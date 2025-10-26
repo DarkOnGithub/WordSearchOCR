@@ -1,0 +1,131 @@
+/* WordSearch OCR - Dark Theme */
+
+/* Base application window */
+.app-window,
+window {
+  background-color: #0f1221;
+  color: #d8dee9;
+}
+
+/* Header bar */
+.app-header,
+headerbar {
+  background-image: none;
+  background-color: #14182b;
+  color: #e6ebf3;
+  box-shadow: inset 0 -1px 0 0 rgba(255,255,255,0.04), 0 1px 0 0 rgba(0,0,0,0.5);
+  border-bottom: 1px solid #21263a;
+}
+
+headerbar .title {
+  color: #e6ebf3;
+  font-weight: 600;
+}
+
+/* Panels */
+.panel-left,
+.panel-right {
+  background-color: #0f1221;
+}
+
+/* Section titles */
+.section-title {
+  color: #a7b3cf;
+}
+
+.step-title {
+  color: #c8d3f5;
+}
+
+/* Framed cards */
+.card-frame,
+frame.card-frame {
+  background-color: #14182b;
+  border: 1px solid #242b40;
+  border-radius: 10px;
+  padding: 8px;
+}
+
+/* Buttons */
+button.primary-button {
+  background: linear-gradient(180deg, #1f6feb 0%, #1b4fd2 100%);
+  border: 1px solid #2753bd;
+  color: #eaf2ff;
+  border-radius: 8px;
+}
+
+button.primary-button:hover {
+  background: linear-gradient(180deg, #2a76ef 0%, #1f56db 100%);
+}
+
+button.accent-button {
+  background: linear-gradient(180deg, #22a06b 0%, #16895a 100%);
+  border: 1px solid #187a51;
+  color: #eafff5;
+  border-radius: 8px;
+}
+
+button.accent-button:disabled {
+  background: #2b3b2f;
+  color: #7e8c86;
+  border-color: #2b3b2f;
+}
+
+.processing-step-button {
+  background: #1a1f35;
+  color: #d8dee9;
+  border: 1px solid #283252;
+  border-radius: 8px;
+}
+
+.processing-step-button:hover {
+  background: #202544;
+}
+
+.processing-step-button.selected {
+  background: linear-gradient(180deg, #3b5bdb 0%, #2d4fc7 100%);
+  border-color: #4c63d2;
+  color: #ffffff;
+  font-weight: bold;
+}
+
+.processing-box {
+  background-color: #11162b;
+  border-radius: 8px;
+}
+
+.processing-scroller viewport {
+  background-color: transparent;
+}
+
+/* Thin separator */
+.thin-separator,
+separator.thin-separator {
+  background: #1a1f35;
+  min-height: 1px;
+}
+
+/* Paned handle */
+.main-paned > separator {
+  background-color: #19213a;
+  min-width: 2px;
+}
+
+/* Welcome fallback label */
+.welcome-fallback {
+  color: #c8d3f5;
+}
+
+/* Scrollbars */
+scrollbar slider {
+  background-color: #2a314a;
+  border-radius: 6px;
+}
+scrollbar slider:hover {
+  background-color: #344063;
+}
+
+/* Labels */
+label {
+  color: #d8dee9;
+}
