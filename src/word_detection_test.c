@@ -145,9 +145,8 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         const char* test_images[] = {
             "images/level_3_image_2.png",
-            "images/level_3_image_1.png",
             "images/level_1_image_1.png",
-            "images/level_1_image_2.png",
+            "images/level_2_image_1_rotated_25.0deg.png",
             NULL
         };
 

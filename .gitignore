@@ -78,3 +78,13 @@ build
 !images/*.svg
 !images/*.webp
 !images/*.ico
+!ressources/*.png
+!ressources/*.jpg
+!ressources/*.jpeg
+!ressources/*.gif
+!ressources/*.bmp
+!ressources/*.tiff
+!ressources/*.tif
+!ressources/*.svg
+!ressources/*.webp
+!ressources/*.ico

@@ -147,7 +147,7 @@ int extract_cell_boundaries_from_lines(const Image* horizontal_lines, const Imag
         return 0;
     }
 
-    int grid_size_lines = detected_horiz > detected_vert ? detected_horiz : detected_vert;
+    int grid_size_lines = detected_horiz < detected_vert ? detected_horiz : detected_vert;
     //!WARNING: This is a hardcoded value for the max grid size.
     if (grid_size_lines > 21) grid_size_lines = 21;
 
