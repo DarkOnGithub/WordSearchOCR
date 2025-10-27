@@ -1,4 +1,4 @@
-#include "cv_operations.h"
+#include "operations.h"
 #include "image.h"
 #include <math.h>
 #include <stdlib.h>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cv_operations.h"
+#include "../image/operations.h"
 #include <stdint.h>
 #include <stdbool.h>
 

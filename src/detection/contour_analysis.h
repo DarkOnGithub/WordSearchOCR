@@ -1,8 +1,8 @@
 #ifndef CONTOUR_ANALYSIS_H
 #define CONTOUR_ANALYSIS_H
 
-#include "../core/image/image.h"
-#include "../core/image/cv_operations.h"
+#include "../image/image.h"
+#include "../image/operations.h"
 
 /**
  * Find the contour with the largest area from a set of contours.

@@ -1,6 +1,6 @@
 #include <stddef.h>
-#include "gui/main_gui.h"
-#include "ocr/wordsearch_processor.h"
+#include "gui/gui.h"
+#include "wordsearch/processor.h"
 
 
 int main(int argc, char* argv[]){

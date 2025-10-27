@@ -1,8 +1,8 @@
 #ifndef IMAGE_PREPROCESSING_H
 #define IMAGE_PREPROCESSING_H
 
-#include "../core/image/image.h"
-#include "../core/image/cv_operations.h"
+#include "../image/image.h"
+#include "../image/operations.h"
 
 /**
  * Callback function type for creating processing step buttons

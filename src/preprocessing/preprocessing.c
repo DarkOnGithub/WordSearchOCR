@@ -1,5 +1,5 @@
-#include "./image_preprocessing.h"
-#include "./contour_analysis.h"
+#include "preprocessing.h"
+#include "../detection/contour_analysis.h"
 #include <stdio.h>
 
 int load_and_preprocess_image(const char* image_path, Image* image, CreateButtonCallback create_button_callback) {

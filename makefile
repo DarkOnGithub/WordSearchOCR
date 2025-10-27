@@ -3,7 +3,7 @@
 # ===================================================================
 
 # Project configuration
-PROJECT_NAME = wordsearch
+PROJECT_NAME = wordsearch_ocr
 BUILD_DIR = build
 SRC_DIR = src
 TARGET = $(BUILD_DIR)/$(PROJECT_NAME)
@@ -23,7 +23,7 @@ OBJECTS = $(MAIN_OBJECTS) $(TEST_OBJECTS)
 DEPS = $(OBJECTS:.o=.d)
 
 # Test targets
-TEST_TARGET = $(BUILD_DIR)/word_detection_test
+TEST_TARGET = $(BUILD_DIR)/tests/word_detection_test
 
 # GTK3 detection and configuration
 GTK3_AVAILABLE := $(shell pkg-config --exists gtk+-3.0 2>/dev/null && echo "yes" || echo "no")
@@ -56,11 +56,12 @@ check-deps:
 # Create build directories
 dirs:
 	@mkdir -p $(BUILD_DIR)
-	@mkdir -p $(BUILD_DIR)/core/image
-	@mkdir -p $(BUILD_DIR)/processing
-	@mkdir -p $(BUILD_DIR)/grid
-	@mkdir -p $(BUILD_DIR)/ocr
+	@mkdir -p $(BUILD_DIR)/image
+	@mkdir -p $(BUILD_DIR)/detection
+	@mkdir -p $(BUILD_DIR)/preprocessing
+	@mkdir -p $(BUILD_DIR)/wordsearch
 	@mkdir -p $(BUILD_DIR)/gui
+	@mkdir -p $(BUILD_DIR)/tests
 
 # Linking
 $(TARGET): $(MAIN_OBJECTS)

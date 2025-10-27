@@ -1,6 +1,6 @@
 #include "word_detection.h"
-#include "cv_operations.h"
-#include "image.h"
+#include "../image/operations.h"
+#include "../image/image.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>

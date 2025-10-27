@@ -1,6 +1,6 @@
 #include <gtk/gtk.h>
 #include <glib.h>
-#include "../ocr/wordsearch_processor.h"
+#include "../wordsearch/processor.h"
 
 static GtkWidget *main_window;
 static GtkWidget *image_display;

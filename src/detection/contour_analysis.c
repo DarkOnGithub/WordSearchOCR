@@ -1,5 +1,5 @@
 #include "contour_analysis.h"
-#include "../core/image/cv_operations.h"
+#include "../image/operations.h"
 #include <stdlib.h>
 #include <string.h>
 

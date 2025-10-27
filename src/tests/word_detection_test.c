@@ -2,8 +2,8 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <string.h>
-#include "core/image/word_detection.h"
-#include "core/image/image.h"
+#include "../detection/word_detection.h"
+#include "../image/image.h"
 
 void extract_word_images(const char* image_path, const BoundingBoxArray* words) {
     if (!words || words->count == 0) {
