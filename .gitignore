@@ -54,7 +54,6 @@ dkms.conf
 # debug information files
 *.dwo
 
-wordsearch
 build
 
 # Images
