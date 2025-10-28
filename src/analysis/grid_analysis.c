@@ -70,8 +70,6 @@ int has_proper_grid_lines(const Image *grid_region)
         "Grid line detection: found %d horizontal lines, %d vertical lines\n",
         horiz_line_count, vert_line_count);
 
-    // If we found at least 3 lines in each direction that span the full grid,
-    // assume we have proper grid lines
     if (horiz_line_count >= 3 && vert_line_count >= 3)
     {
         printf("Detected proper grid lines - will use line detection\n");
@@ -387,6 +385,45 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
 
     freeContours(filtered_horiz);
     freeContours(filtered_vert);
+
+    // Create visualization of final grid boundaries
+    Image grid_viz;
+    grid_viz.width = grid_width;
+    grid_viz.height = grid_height;
+    grid_viz.is_grayscale = false;
+    grid_viz.rgba_pixels = (uint32_t *)malloc(sizeof(uint32_t) * grid_viz.width * grid_viz.height);
+    grid_viz.gray_pixels = NULL;
+
+    if (grid_viz.rgba_pixels)
+    {
+        // Initialize with white background
+        for (int i = 0; i < grid_viz.width * grid_viz.height; i++)
+        {
+            grid_viz.rgba_pixels[i] = 0xFFFFFFFF; // White
+        }
+
+        // Draw horizontal grid lines in green
+        for (int i = 0; i < grid_size_lines; i++)
+        {
+            if ((*y_boundaries)[i] >= 0 && (*y_boundaries)[i] < grid_height)
+            {
+                draw_horizontal_line(&grid_viz, 0, grid_width, (*y_boundaries)[i], 0x00FF00FF); // Green
+            }
+        }
+
+        // Draw vertical grid lines in red
+        for (int i = 0; i < grid_size_lines; i++)
+        {
+            if ((*x_boundaries)[i] >= 0 && (*x_boundaries)[i] < grid_width)
+            {
+                draw_vertical_line(&grid_viz, (*x_boundaries)[i], 0, grid_height, 0xFF0000FF); // Red
+            }
+        }
+
+        save_image("grid_boundaries_visualization.png", &grid_viz);
+        printf("Saved grid boundaries visualization to grid_boundaries_visualization.png\n");
+        free_image(&grid_viz);
+    }
 
     printf(
         "Final boundaries: %d rows (%d boundaries), %d cols (%d boundaries)\n",

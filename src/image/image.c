@@ -300,9 +300,55 @@ void cpy_image(const Image *image, Image *image_cpy)
     }
 }
 
-static void draw_horizontal_line(Image *image, int x1, int x2, int y,
-                                 uint8_t gray_color, uint32_t rgba_color)
+void gray_to_rgba(Image *image)
 {
+    if (!image)
+    {
+        fprintf(stderr, "Error: Invalid image for gray_to_rgba\n");
+        return;
+    }
+
+    if (!image->gray_pixels)
+    {
+        fprintf(stderr, "Error: Image has no grayscale pixel data to convert\n");
+        return;
+    }
+
+    if (!image->is_grayscale)
+    {
+        printf("Image is already RGBA\n");
+        return;
+    }
+
+    size_t pixel_count = image->width * image->height;
+    image->rgba_pixels = (uint32_t *)malloc(pixel_count * sizeof(uint32_t));
+    if (!image->rgba_pixels)
+    {
+        fprintf(stderr, "Error: Failed to allocate RGBA pixel buffer\n");
+        return;
+    }
+
+    uint8_t *gray_pixels = image->gray_pixels;
+    for (int i = 0; i < pixel_count; i++)
+    {
+        uint8_t gray_value = gray_pixels[i];
+        // RGBA format: R=X, G=X, B=X, A=255
+        image->rgba_pixels[i] = (gray_value << 24) | (gray_value << 16) |
+                               (gray_value << 8) | 255;
+    }
+
+    free(image->gray_pixels);
+    image->gray_pixels = NULL;
+
+    image->is_grayscale = false;
+    printf("Converted image to RGBA (%dx%d)\n", image->width, image->height);
+}
+
+static void draw_horizontal_line_static(Image *image, int x1, int x2, int y,
+                                        uint32_t color)
+{
+    uint8_t gray_color = (color & 0xFF); // Extract gray value from color
+
     for (int x = x1; x < x2; x++)
     {
         if (image->is_grayscale)
@@ -311,14 +357,16 @@ static void draw_horizontal_line(Image *image, int x1, int x2, int y,
         }
         else
         {
-            image->rgba_pixels[y * image->width + x] = rgba_color;
+            image->rgba_pixels[y * image->width + x] = color;
         }
     }
 }
 
-static void draw_vertical_line(Image *image, int x, int y1, int y2,
-                               uint8_t gray_color, uint32_t rgba_color)
+static void draw_vertical_line_static(Image *image, int x, int y1, int y2,
+                                      uint32_t color)
 {
+    uint8_t gray_color = (color & 0xFF); // Extract gray value from color
+
     for (int y = y1; y < y2; y++)
     {
         if (image->is_grayscale)
@@ -327,7 +375,7 @@ static void draw_vertical_line(Image *image, int x, int y1, int y2,
         }
         else
         {
-            image->rgba_pixels[y * image->width + x] = rgba_color;
+            image->rgba_pixels[y * image->width + x] = color;
         }
     }
 }
@@ -406,26 +454,162 @@ void draw_rectangle(Image *image, int x, int y, int width, int height,
                 break;
             }
 
-            draw_horizontal_line(image, inner_start_x, inner_end_x,
-                                 inner_start_y, gray_color, color);
+            draw_horizontal_line_static(image, inner_start_x, inner_end_x,
+                                        inner_start_y, color);
 
             if (inner_end_y - 1 != inner_start_y)
             {
-                draw_horizontal_line(image, inner_start_x, inner_end_x,
-                                     inner_end_y - 1, gray_color, color);
+                draw_horizontal_line_static(image, inner_start_x, inner_end_x,
+                                           inner_end_y - 1, color);
             }
 
             if (inner_end_y - inner_start_y > 2)
             {
-                draw_vertical_line(image, inner_start_x, inner_start_y + 1,
-                                   inner_end_y - 1, gray_color, color);
+                draw_vertical_line_static(image, inner_start_x, inner_start_y + 1,
+                                         inner_end_y - 1, color);
 
                 if (inner_end_x - 1 != inner_start_x)
                 {
-                    draw_vertical_line(image, inner_end_x - 1,
-                                       inner_start_y + 1, inner_end_y - 1,
-                                       gray_color, color);
+                    draw_vertical_line_static(image, inner_end_x - 1,
+                                             inner_start_y + 1, inner_end_y - 1,
+                                             color);
                 }
+            }
+        }
+    }
+}
+
+void draw_line(Image *image, int x1, int y1, int x2, int y2, uint32_t color)
+{
+    if (!image)
+    {
+        fprintf(stderr, "Error: Invalid image for draw_line\n");
+        return;
+    }
+
+    if ((image->is_grayscale && !image->gray_pixels) ||
+        (!image->is_grayscale && !image->rgba_pixels))
+    {
+        fprintf(stderr, "Error: Image has no pixel data for draw_line\n");
+        return;
+    }
+
+    uint8_t gray_color = (color & 0xFF); // Extract gray value from color
+
+    // Bresenham's line algorithm
+    int dx = abs(x2 - x1);
+    int dy = abs(y2 - y1);
+    int sx = x1 < x2 ? 1 : -1;
+    int sy = y1 < y2 ? 1 : -1;
+    int err = dx - dy;
+
+    while (1)
+    {
+        // Draw pixel at (x1, y1)
+        if (x1 >= 0 && x1 < image->width && y1 >= 0 && y1 < image->height)
+        {
+            if (image->is_grayscale)
+            {
+                image->gray_pixels[y1 * image->width + x1] = gray_color;
+            }
+            else
+            {
+                image->rgba_pixels[y1 * image->width + x1] = color;
+            }
+        }
+
+        if (x1 == x2 && y1 == y2)
+            break;
+
+        int e2 = 2 * err;
+        if (e2 > -dy)
+        {
+            err -= dy;
+            x1 += sx;
+        }
+        if (e2 < dx)
+        {
+            err += dx;
+            y1 += sy;
+        }
+    }
+}
+
+void draw_horizontal_line(Image *image, int x1, int x2, int y, uint32_t color)
+{
+    if (!image)
+    {
+        fprintf(stderr, "Error: Invalid image for draw_horizontal_line\n");
+        return;
+    }
+
+    if ((image->is_grayscale && !image->gray_pixels) ||
+        (!image->is_grayscale && !image->rgba_pixels))
+    {
+        fprintf(stderr, "Error: Image has no pixel data for draw_horizontal_line\n");
+        return;
+    }
+
+    uint8_t gray_color = (color & 0xFF); // Extract gray value from color
+
+    if (x1 > x2)
+    {
+        int temp = x1;
+        x1 = x2;
+        x2 = temp;
+    }
+
+    for (int x = x1; x < x2; x++)
+    {
+        if (x >= 0 && x < image->width && y >= 0 && y < image->height)
+        {
+            if (image->is_grayscale)
+            {
+                image->gray_pixels[y * image->width + x] = gray_color;
+            }
+            else
+            {
+                image->rgba_pixels[y * image->width + x] = color;
+            }
+        }
+    }
+}
+
+void draw_vertical_line(Image *image, int x, int y1, int y2, uint32_t color)
+{
+    if (!image)
+    {
+        fprintf(stderr, "Error: Invalid image for draw_vertical_line\n");
+        return;
+    }
+
+    if ((image->is_grayscale && !image->gray_pixels) ||
+        (!image->is_grayscale && !image->rgba_pixels))
+    {
+        fprintf(stderr, "Error: Image has no pixel data for draw_vertical_line\n");
+        return;
+    }
+
+    uint8_t gray_color = (color & 0xFF); // Extract gray value from color
+
+    if (y1 > y2)
+    {
+        int temp = y1;
+        y1 = y2;
+        y2 = temp;
+    }
+
+    for (int y = y1; y < y2; y++)
+    {
+        if (x >= 0 && x < image->width && y >= 0 && y < image->height)
+        {
+            if (image->is_grayscale)
+            {
+                image->gray_pixels[y * image->width + x] = gray_color;
+            }
+            else
+            {
+                image->rgba_pixels[y * image->width + x] = color;
             }
         }
     }

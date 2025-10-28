@@ -54,6 +54,14 @@ int generate_safe_cell_boundaries(const Image *grid_region, int num_rows,
                                   int **x_boundaries);
 
 /**
+ * Generate cell boundaries based on letter positions and gaps.
+ * @return 0 on success, non-zero on failure
+ */
+int generate_cell_boundaries_from_letters(Contours *valid_letters, int num_rows,
+                                          int num_cols, int **y_boundaries,
+                                          int **x_boundaries);
+
+/**
  * Create a reconstructed grid image from individual cell images with spacing.
  * @return 0 on success, non-zero on failure
  */

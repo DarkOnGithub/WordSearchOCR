@@ -133,3 +133,11 @@ void adaptive_denoise(Image *image);
     !Warning: Only works on grayscale images. Modifies the image in place.
 */
 void adaptive_morphological_clean(Image *image);
+
+double estimate_noise_level(Image *image);
+
+/*
+    Invert a grayscale image (255 - pixel_value).
+    !Warning: Only works on grayscale images. Modifies the image in place.
+*/
+void invert(Image *image);

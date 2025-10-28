@@ -5,6 +5,10 @@
 #include "word_detection.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <dirent.h>
+#include <unistd.h>
+#include <string.h>
+#include <limits.h>
 
 int process_wordsearch_image(const char *image_path,
                              CreateButtonCallback create_button_callback)
@@ -155,9 +159,9 @@ int process_wordsearch_image(const char *image_path,
             return 1;
         }
 
-        // Generate safe cell boundaries
-        if (generate_safe_cell_boundaries(&text_region, num_rows, num_cols,
-                                          &y_boundaries, &x_boundaries) != 0)
+        // Generate cell boundaries based on letter positions
+        if (generate_cell_boundaries_from_letters(valid_letters, num_rows, num_cols,
+                                                  &y_boundaries, &x_boundaries) != 0)
         {
             fprintf(stderr, "Failed to generate cell boundaries\n");
             freeContours(letters_contours);
@@ -185,19 +189,19 @@ int process_wordsearch_image(const char *image_path,
 
     Image debug_grid = {0};
     cpy_image(&text_region, &debug_grid);
-
+    gray_to_rgba(&debug_grid);
     for (int i = 0; i <= num_rows; i++)
     {
         int y = y_boundaries[i];
         draw_rectangle(&debug_grid, 0, y, text_region.width, 1, true, 3,
-                       0xFF00FF00);
+                       0xFF0000FF);
     }
 
     for (int i = 0; i <= num_cols; i++)
     {
         int x = x_boundaries[i];
         draw_rectangle(&debug_grid, x, 0, 1, text_region.height, true, 3,
-                       0xFF00FF00);
+                       0xFF0000FF);
     }
 
     save_image("step_9_grid_region.png", &debug_grid);
@@ -238,6 +242,43 @@ int process_wordsearch_image(const char *image_path,
     return 0;
 }
 
+void clear_cells_directory(void)
+{
+    DIR *dir = opendir("cells");
+    if (!dir)
+    {
+        printf("Could not open cells directory for clearing\n");
+        return;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL)
+    {
+        // Skip . and .. directories and .gitkeep files
+        if (strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0 ||
+            strcmp(entry->d_name, ".gitkeep") == 0)
+        {
+            continue;
+        }
+
+        // Remove the file
+        char filepath[512];
+        snprintf(filepath, sizeof(filepath), "cells/%s", entry->d_name);
+        if (unlink(filepath) == 0)
+        {
+            printf("Removed: %s\n", filepath);
+        }
+        else
+        {
+            printf("Failed to remove: %s\n", filepath);
+        }
+    }
+
+    closedir(dir);
+    printf("Cells directory cleared (except .gitkeep)\n");
+}
+
 int extract_cell_images(const Image *grid_region, const int *y_boundaries,
                         const int *x_boundaries, int num_rows, int num_cols)
 {
@@ -246,8 +287,10 @@ int extract_cell_images(const Image *grid_region, const int *y_boundaries,
         return 1;
     }
 
-    printf("Extracting individual cells for OCR processing...\n");
+    // Clear the cells directory before extracting new cells
+    clear_cells_directory();
 
+    printf("Extracting individual cells for OCR processing...\n");
     for (int row = 0; row < num_rows; row++)
     {
         for (int col = 0; col < num_cols; col++)
@@ -256,7 +299,6 @@ int extract_cell_images(const Image *grid_region, const int *y_boundaries,
             int y2 = y_boundaries[row + 1];
             int x1 = x_boundaries[col];
             int x2 = x_boundaries[col + 1];
-
             int cell_width_px = x2 - x1;
             int cell_height_px = y2 - y1;
 
@@ -286,15 +328,28 @@ int create_reconstructed_grid(int num_rows, int num_cols,
         return 1;
     }
 
-    // Load the first cell to get dimensions
+    // Load the first available cell to get dimensions
     Image first_cell = {0};
     char first_filename[256];
-    sprintf(first_filename, "cells/cell_0_0.png");
+    int found_cell = 0;
 
-    load_image(first_filename, &first_cell);
-    if (!first_cell.rgba_pixels && !first_cell.gray_pixels)
+    // Try different cells until we find one that exists
+    for (int r = 0; r < num_rows && !found_cell; r++)
     {
-        fprintf(stderr, "Failed to load first cell image for dimensions\n");
+        for (int c = 0; c < num_cols && !found_cell; c++)
+        {
+            sprintf(first_filename, "cells/cell_%d_%d.png", r, c);
+            load_image(first_filename, &first_cell);
+            if (first_cell.rgba_pixels || first_cell.gray_pixels)
+            {
+                found_cell = 1;
+            }
+        }
+    }
+
+    if (!found_cell)
+    {
+        fprintf(stderr, "Failed to load any cell image for dimensions\n");
         return 1;
     }
 
@@ -555,7 +610,7 @@ int generate_safe_cell_boundaries(const Image *grid_region, int num_rows,
     {
         int y = row * cell_height;
         int safe_y = find_safe_line_position(
-            y, 1, 10, &binary_debug, grid_region->width, grid_region->height);
+            y, 1, 4, &binary_debug, grid_region->width, grid_region->height);
         (*y_boundaries)[row] = safe_y;
     }
 
@@ -563,11 +618,276 @@ int generate_safe_cell_boundaries(const Image *grid_region, int num_rows,
     {
         int x = col * cell_width;
         int safe_x = find_safe_line_position(
-            x, 0, 10, &binary_debug, grid_region->width, grid_region->height);
+            x, 0, 4, &binary_debug, grid_region->width, grid_region->height);
         (*x_boundaries)[col] = safe_x;
     }
 
     free_image(&binary_debug);
+    return 0;
+}
+
+int generate_cell_boundaries_from_letters(Contours *valid_letters, int num_rows,
+                                          int num_cols, int **y_boundaries,
+                                          int **x_boundaries)
+{
+    if (!valid_letters || !y_boundaries || !x_boundaries || num_rows <= 0 ||
+        num_cols <= 0)
+    {
+        return 1;
+    }
+
+    // Allocate boundary arrays
+    *y_boundaries = (int *)malloc(sizeof(int) * (num_rows + 1));
+    *x_boundaries = (int *)malloc(sizeof(int) * (num_cols + 1));
+    if (!*y_boundaries || !*x_boundaries)
+    {
+        fprintf(stderr, "Failed to allocate memory for boundary arrays\n");
+        if (*y_boundaries)
+            free(*y_boundaries);
+        if (*x_boundaries)
+            free(*x_boundaries);
+        return 1;
+    }
+
+    // Group letters into rows (similar to determine_grid_dimensions_from_letters)
+#define ROW_TOLERANCE 10
+
+    LetterRow *rows = NULL;
+    int rows_capacity = 0;
+    int actual_num_rows = 0;
+
+    // First pass: group letters by rows
+    for (int i = 0; i < valid_letters->count; i++)
+    {
+        Rect rect;
+        if (!boundingRect(&valid_letters->contours[i], &rect))
+        {
+            continue;
+        }
+
+        int letter_y = rect.y + rect.height / 2; // Use center of letter
+        int found_row_idx = -1;
+
+        for (int j = 0; j < actual_num_rows; j++)
+        {
+            if (abs(letter_y - rows[j].row_y) <= ROW_TOLERANCE)
+            {
+                found_row_idx = j;
+                break;
+            }
+        }
+
+        if (found_row_idx == -1)
+        {
+            if (actual_num_rows >= rows_capacity)
+            {
+                rows_capacity = rows_capacity == 0 ? 4 : rows_capacity * 2;
+                rows = (LetterRow *)realloc(rows,
+                                            sizeof(LetterRow) * rows_capacity);
+                if (!rows)
+                {
+                    fprintf(stderr, "Failed to allocate memory for rows\n");
+                    free(*y_boundaries);
+                    free(*x_boundaries);
+                    return 1;
+                }
+            }
+
+            found_row_idx = actual_num_rows;
+            rows[actual_num_rows].row_y = letter_y;
+            rows[actual_num_rows].letters = NULL;
+            rows[actual_num_rows].count = 0;
+            rows[actual_num_rows].capacity = 0;
+            actual_num_rows++;
+        }
+
+        LetterRow *row = &rows[found_row_idx];
+        if (row->count >= row->capacity)
+        {
+            row->capacity = row->capacity == 0 ? 4 : row->capacity * 2;
+            row->letters =
+                (Rect *)realloc(row->letters, sizeof(Rect) * row->capacity);
+            if (!row->letters)
+            {
+                fprintf(stderr,
+                        "Failed to allocate memory for letters in row\n");
+                for (int k = 0; k < actual_num_rows; k++)
+                {
+                    free(rows[k].letters);
+                }
+                free(rows);
+                free(*y_boundaries);
+                free(*x_boundaries);
+                return 1;
+            }
+        }
+
+        row->letters[row->count++] = rect;
+    }
+
+    // Sort rows by Y position
+    for (int i = 0; i < actual_num_rows - 1; i++)
+    {
+        for (int j = i + 1; j < actual_num_rows; j++)
+        {
+            if (rows[i].row_y > rows[j].row_y)
+            {
+                LetterRow temp = rows[i];
+                rows[i] = rows[j];
+                rows[j] = temp;
+            }
+        }
+    }
+
+    // Generate Y boundaries based on row gaps
+    if (actual_num_rows > 0)
+    {
+        // Find minimum and maximum Y positions across all letters
+        int min_y = INT_MAX;
+        int max_y = INT_MIN;
+
+        for (int i = 0; i < valid_letters->count; i++)
+        {
+            Rect rect;
+            if (boundingRect(&valid_letters->contours[i], &rect))
+            {
+                if (rect.y < min_y) min_y = rect.y;
+                if (rect.y + rect.height > max_y) max_y = rect.y + rect.height;
+            }
+        }
+
+        // Set top boundary
+        (*y_boundaries)[0] = min_y;
+
+        // For multiple rows, place boundaries at centers of gaps between rows
+        if (actual_num_rows > 1)
+        {
+            for (int i = 0; i < actual_num_rows - 1; i++)
+            {
+                int current_row_bottom = rows[i].row_y;
+                int next_row_top = rows[i + 1].row_y;
+
+                // Find the actual bottom of letters in current row
+                for (int j = 0; j < rows[i].count; j++)
+                {
+                    if (rows[i].letters[j].y + rows[i].letters[j].height > current_row_bottom)
+                    {
+                        current_row_bottom = rows[i].letters[j].y + rows[i].letters[j].height;
+                    }
+                }
+
+                // Find the actual top of letters in next row
+                for (int j = 0; j < rows[i + 1].count; j++)
+                {
+                    if (rows[i + 1].letters[j].y < next_row_top)
+                    {
+                        next_row_top = rows[i + 1].letters[j].y;
+                    }
+                }
+
+                // Place boundary at center of gap
+                (*y_boundaries)[i + 1] = (current_row_bottom + next_row_top) / 2;
+            }
+        }
+
+        // Set bottom boundary
+        (*y_boundaries)[num_rows] = max_y;
+    }
+    else
+    {
+        // Fallback if no letters found
+        (*y_boundaries)[0] = 0;
+        for (int i = 1; i <= num_rows; i++)
+        {
+            (*y_boundaries)[i] = i * 50; // Arbitrary spacing
+        }
+    }
+
+    // Generate X boundaries based on column positions within each row
+    if (actual_num_rows > 0)
+    {
+        // Use the row with the most letters to determine column positions
+        int max_letters_row = 0;
+        for (int i = 1; i < actual_num_rows; i++)
+        {
+            if (rows[i].count > rows[max_letters_row].count)
+            {
+                max_letters_row = i;
+            }
+        }
+
+        LetterRow *reference_row = &rows[max_letters_row];
+
+        // Sort letters in the reference row by X position
+        for (int i = 0; i < reference_row->count - 1; i++)
+        {
+            for (int j = i + 1; j < reference_row->count; j++)
+            {
+                if (reference_row->letters[i].x > reference_row->letters[j].x)
+                {
+                    Rect temp = reference_row->letters[i];
+                    reference_row->letters[i] = reference_row->letters[j];
+                    reference_row->letters[j] = temp;
+                }
+            }
+        }
+
+        // Find overall min and max X positions
+        int min_x = INT_MAX;
+        int max_x = INT_MIN;
+
+        for (int i = 0; i < valid_letters->count; i++)
+        {
+            Rect rect;
+            if (boundingRect(&valid_letters->contours[i], &rect))
+            {
+                if (rect.x < min_x) min_x = rect.x;
+                if (rect.x + rect.width > max_x) max_x = rect.x + rect.width;
+            }
+        }
+
+        // Set left boundary
+        (*x_boundaries)[0] = min_x;
+
+        // For multiple columns, place boundaries at centers of gaps between letters
+        if (reference_row->count > 1)
+        {
+            for (int i = 0; i < reference_row->count - 1 && i < num_cols - 1; i++)
+            {
+                int current_letter_right = reference_row->letters[i].x + reference_row->letters[i].width;
+                int next_letter_left = reference_row->letters[i + 1].x;
+
+                // Place boundary at center of gap
+                (*x_boundaries)[i + 1] = (current_letter_right + next_letter_left) / 2;
+            }
+        }
+
+        // Fill remaining boundaries if needed
+        for (int i = reference_row->count; i < num_cols; i++)
+        {
+            (*x_boundaries)[i] = (*x_boundaries)[i-1] + 50; // Arbitrary spacing
+        }
+
+        // Set right boundary
+        (*x_boundaries)[num_cols] = max_x;
+    }
+    else
+    {
+        // Fallback if no letters found
+        (*x_boundaries)[0] = 0;
+        for (int i = 1; i <= num_cols; i++)
+        {
+            (*x_boundaries)[i] = i * 50; // Arbitrary spacing
+        }
+    }
+
+    // Clean up
+    for (int i = 0; i < actual_num_rows; i++)
+    {
+        free(rows[i].letters);
+    }
+    free(rows);
+
     return 0;
 }
 

@@ -615,24 +615,12 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         save_image(debug_path, &image);
     }
 
-    Image original_blurred;
-    load_image(image_path, &original_blurred);
-    convert_to_grayscale(&original_blurred);
-    gaussian_blur(&original_blurred, 5, 0.0);
-
-    //! WARNING !TODO  Adapative or mean might not be useful,
+    // Image original_blurred;
+    // load_image(image_path, &original_blurred);
+    // convert_to_grayscale(&original_blurred);
+    // gaussian_blur(&original_blurred, 5, 0.0);
 
     // Step 4: Adaptive thresholding
-    adaptiveThreshold(&original_blurred, 255, 1, 1, 11,
-                      2); // GAUSSIAN, BINARY_INV
-
-    if (debug_prefix)
-    {
-        char debug_path[256];
-        snprintf(debug_path, sizeof(debug_path), "%s_04_adaptive_threshold.png",
-                 debug_prefix);
-        save_image(debug_path, &image);
-    }
 
     Image original_blurred2;
     load_image(image_path, &original_blurred2);
@@ -676,7 +664,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         fprintf(stderr,
                 "Error: Failed to allocate memory for combined threshold\n");
         free_image(&image);
-        free_image(&original_blurred);
         free_image(&original_blurred2);
         return NULL;
     }
@@ -685,9 +672,8 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
     for (int i = 0; i < total_pixels; i++)
     {
         uint8_t val1 = image.gray_pixels[i];             // Otsu result
-        uint8_t val2 = original_blurred.gray_pixels[i];  // Adaptive result
         uint8_t val3 = original_blurred2.gray_pixels[i]; // Mean result
-        combined_threshold.gray_pixels[i] = val1 | val2 | val3;
+        combined_threshold.gray_pixels[i] = val1 | val3;
     }
 
     if (debug_prefix)
@@ -698,7 +684,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         save_image(debug_path, &combined_threshold);
     }
 
-    free_image(&original_blurred);
     free_image(&original_blurred2);
 
     // Step 7: Morphological operations
@@ -727,7 +712,7 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
     }
 
     // Dilate
-    morphologyEx(&combined_threshold, MORPH_DILATE, kernel_large, 2);
+    morphologyEx(&combined_threshold, MORPH_DILATE, kernel_large, 3);
 
     if (debug_prefix)
     {
@@ -738,7 +723,7 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
     }
 
     // Erode
-    morphologyEx(&combined_threshold, MORPH_ERODE, kernel_small, 1);
+    morphologyEx(&combined_threshold, MORPH_ERODE, kernel_small, 2);
 
     if (debug_prefix)
     {

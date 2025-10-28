@@ -90,7 +90,6 @@ void gaussian_blur(Image *image, uint8_t kernel_size, float sigma)
     }
 
     int radius = kernel_size / 2;
-    int channels = image->is_grayscale ? 1 : 4;
 
     if (image->is_grayscale)
     {
@@ -1136,6 +1135,7 @@ Contours *filterContoursByLength(const Contours *contours, double min_length)
     for (int i = 0; i < contours->count; i++)
     {
         const Contour *contour = &contours->contours[i];
+
         double length = arcLength(contour, 0);
 
         if (length > min_length)
@@ -1163,6 +1163,8 @@ Contours *filterContoursByLength(const Contours *contours, double min_length)
                 freeContours(filtered);
                 return NULL;
             }
+        }else{
+            // printf("Line of length %f not added\n", length);
         }
     }
 
@@ -1289,7 +1291,7 @@ int getBoundingRectOfRects(const Rect *rects, int count, int padding,
     Estimate noise level in a grayscale image using local variance analysis.
     Returns a value between 0.0 (no noise) and 1.0 (high noise).
 */
-static double estimate_noise_level(const Image *image)
+double estimate_noise_level(Image *image)
 {
     if (!image || !image->gray_pixels)
     {
