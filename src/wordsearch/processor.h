@@ -10,12 +10,20 @@
 typedef void (*CreateButtonCallback)(const char* step_name, const char* filename);
 
 /**
- * Main processing function.
+ * Main processing function for grid detection.
  * @param image_path Path to the image to process
  * @param create_button_callback Callback function to create buttons (can be NULL)
  * @return 0 on success, non-zero on failure
  */
 int process_wordsearch_image(const char* image_path, CreateButtonCallback create_button_callback);
+
+/**
+ * Main processing function for word detection.
+ * @param image_path Path to the image to process
+ * @param create_button_callback Callback function to create buttons (can be NULL)
+ * @return 0 on success, non-zero on failure
+ */
+int process_word_detection(const char* image_path, CreateButtonCallback create_button_callback);
 
 /**
  * Extract individual cell images from the grid for OCR processing.

@@ -1,4 +1,5 @@
 #include "processor.h"
+#include "word_detection.h"
 #include "../preprocessing/preprocessing.h"
 #include "../analysis/contour_analysis.h"
 #include "../analysis/grid_analysis.h"
@@ -470,5 +471,60 @@ int generate_safe_cell_boundaries(const Image* grid_region, int num_rows, int nu
     }
 
     free_image(&binary_debug);
+    return 0;
+}
+
+int process_word_detection(const char* image_path, CreateButtonCallback create_button_callback) {
+    if (!image_path) {
+        fprintf(stderr, "Error: No image path provided\n");
+        return 1;
+    }
+
+    printf("Processing word detection: %s\n", image_path);
+
+    char debug_prefix[256] = "word_detection";
+
+    BoundingBoxArray* detected_words = detect_words(image_path, debug_prefix);
+
+    if (!detected_words) {
+        fprintf(stderr, "Failed to detect words\n");
+        return 1;
+    }
+
+    if (create_button_callback) {
+        create_button_callback("Original Image", "word_detection_01_original.png");
+        create_button_callback("Gaussian Blur", "word_detection_02_blurred.png");
+        create_button_callback("Otsu Threshold", "word_detection_03_otsu_threshold.png");
+        create_button_callback("Adaptive Threshold", "word_detection_04_adaptive_threshold.png");
+        create_button_callback("Mean Threshold", "word_detection_05_mean_threshold.png");
+        create_button_callback("Combined Threshold", "word_detection_06_combined_threshold.png");
+        create_button_callback("Morphology Close", "word_detection_07_morphology_closed.png");
+        create_button_callback("Dilated", "word_detection_08_dilated.png");
+        create_button_callback("Eroded", "word_detection_09_eroded.png");
+    }
+
+    Image original_image;
+    load_image(image_path, &original_image);
+
+    if (original_image.rgba_pixels || original_image.gray_pixels) {
+        Image word_detection_result;
+        cpy_image(&original_image, &word_detection_result);
+
+        draw_bounding_boxes(&word_detection_result, detected_words, 0xFF00FF00, 3);
+
+        save_image("word_detection_10_detected_words.png", &word_detection_result);
+
+        if (create_button_callback) {
+            create_button_callback("Detected Words", "word_detection_10_detected_words.png");
+        }
+
+        free_image(&word_detection_result);
+    }
+
+    free_image(&original_image);
+    freeBoundingBoxArray(detected_words);
+    free(detected_words);
+
+    printf("Word detection processing completed\n");
     return 0;
 }

@@ -498,7 +498,7 @@ BoundingBoxArray* detect_words(const char* image_path, const char* debug_prefix)
     }
 
     // Step 3: Otsu's thresholding
-    double otsu_threshold = threshold(&image, 255);
+    threshold(&image, 255);
     // Invert the result, THRESH_BINARY_INV + THRESH_OTSU
     correctBinaryImageOrientation(&image);
 

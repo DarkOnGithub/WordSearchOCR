@@ -12,7 +12,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -g -I$(SRC_DIR)
 LDFLAGS = -lm
 
-MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*test*.c" -not -name "*_test.c")
+MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*test*.c" -not -name "*_test.c" -not -name "*XNOR.c")
 TEST_SOURCES = $(shell find $(SRC_DIR) -name "*test*.c" -o -name "*_test.c")
 SOURCES = $(MAIN_SOURCES) $(TEST_SOURCES)
 MAIN_OBJECTS = $(MAIN_SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)

@@ -33,9 +33,9 @@ int load_and_preprocess_image(const char* image_path, Image* image, CreateButton
 
     adaptive_morphological_clean(image);
     save_image("step_03_5_morph_cleaned.png", image);
-    if (create_button_callback) {
-        create_button_callback("Morphological Clean", "step_03_5_morph_cleaned.png");
-    }
+    // if (create_button_callback) {
+    //     create_button_callback("Morphological Clean", "step_03_5_morph_cleaned.png");
+    // }
 
     return 1;
 }
@@ -104,9 +104,9 @@ int process_grid_for_ocr(Image* grid_image, CreateButtonCallback create_button_c
     }
 
     save_image("step_06_binary_grid.png", grid_image);
-    if (create_button_callback) {
-        create_button_callback("Binary Grid", "step_06_binary_grid.png");
-    }
+    // if (create_button_callback) {
+    //     create_button_callback("Binary Grid", "step_06_binary_grid.png");
+    // }
 
     StructuringElement* cleanup_kernel = getStructuringElement(0, 2, 2);
     if (cleanup_kernel) {

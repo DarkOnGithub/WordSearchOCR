@@ -1,29 +1,50 @@
 #include <gtk/gtk.h>
 #include <glib.h>
 #include "../wordsearch/processor.h"
+#include "../wordsearch/word_detection.h"
 
 static GtkWidget *main_window;
 static GtkWidget *image_display;
 static GtkWidget *right_image_display;
 static GtkWidget *load_button;
 static GtkWidget *process_button;
-static GtkWidget *processing_steps_container = NULL;
-static GtkWidget *selected_processing_button = NULL;
 static GtkWidget *paned;
 static GtkWidget *image_container;
 static GtkWidget *results_container;
+static GtkWidget *notebook;
 static gchar *current_image_path = NULL;
 static gboolean is_processing = FALSE;
+typedef struct {
+    char *step_name;
+    char *filename;
+} ButtonInfo;
+
+static void free_button_info(gpointer data) {
+    ButtonInfo *info = (ButtonInfo *)data;
+    if (info) {
+        g_free(info->step_name);
+        g_free(info->filename);
+        g_free(info);
+    }
+}
+
+static int current_processing_mode = 0;
+static GtkWidget *tab_containers[2] = {NULL, NULL};
+static gboolean tab_processed[2] = {FALSE, FALSE};
+static GList *tab_buttons[2] = {NULL, NULL};
+static GtkWidget *selected_processing_button = NULL;
 
 static void load_image_callback(GtkWidget *widget, gpointer data);
 static void process_callback(GtkWidget *widget, gpointer data);
 static void create_processing_step_button(const char* step_name, const char* filename);
 static void processing_step_callback(GtkWidget *widget, gpointer data);
+static void notebook_switch_page_callback(GtkNotebook *notebook, GtkWidget *page, guint page_num, gpointer user_data);
 static void setup_initial_right_panel(const gchar *image_path);
 static void show_file_chooser(void);
 static void display_image(const gchar *image_path);
 static void display_right_image(const gchar *image_path);
 static void process_image(const gchar *image_path);
+static void process_both_modes(const gchar *image_path);
 static void animate_image_transition(void);
 static void load_dark_theme_css(void);
 static void show_welcome_panel(void);
@@ -51,7 +72,7 @@ int main_gui(int argc, char *argv[]) {
     g_signal_connect(load_button, "clicked", G_CALLBACK(load_image_callback), NULL);
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header_bar), load_button);
 
-    process_button = gtk_button_new_with_label("Start Processing");
+    process_button = gtk_button_new_with_label("Process Image");
     gtk_widget_set_sensitive(process_button, FALSE);
     g_signal_connect(process_button, "clicked", G_CALLBACK(process_callback), NULL);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header_bar), process_button);
@@ -98,13 +119,33 @@ int main_gui(int argc, char *argv[]) {
     gtk_style_context_add_class(gtk_widget_get_style_context(separator), "thin-separator");
     gtk_box_pack_start(GTK_BOX(image_container), separator, FALSE, FALSE, 0);
 
-    GtkWidget *processing_section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    gtk_box_pack_start(GTK_BOX(image_container), processing_section, TRUE, TRUE, 0);
+    notebook = gtk_notebook_new();
+    gtk_box_pack_start(GTK_BOX(image_container), notebook, TRUE, TRUE, 0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(notebook), "processing-notebook");
 
-    GtkWidget *processing_title = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(processing_title), "<b><span size='large'>Processing Steps</span></b>");
-    gtk_style_context_add_class(gtk_widget_get_style_context(processing_title), "section-title");
-    gtk_box_pack_start(GTK_BOX(processing_section), processing_title, FALSE, FALSE, 5);
+    GtkWidget *grid_processing_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_set_border_width(GTK_CONTAINER(grid_processing_box), 10);
+
+    GtkWidget *grid_title = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(grid_title), "<b><span size='large'>Grid Processing Steps</span></b>");
+    gtk_style_context_add_class(gtk_widget_get_style_context(grid_title), "section-title");
+    gtk_box_pack_start(GTK_BOX(grid_processing_box), grid_title, FALSE, FALSE, 5);
+
+    GtkWidget *grid_tab_label = gtk_label_new("Grid Processing");
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), grid_processing_box, grid_tab_label);
+
+    GtkWidget *word_detection_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_set_border_width(GTK_CONTAINER(word_detection_box), 10);
+
+    GtkWidget *word_title = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(word_title), "<b><span size='large'>Word Detection Steps</span></b>");
+    gtk_style_context_add_class(gtk_widget_get_style_context(word_title), "section-title");
+    gtk_box_pack_start(GTK_BOX(word_detection_box), word_title, FALSE, FALSE, 5);
+
+    GtkWidget *word_tab_label = gtk_label_new("Word Detection");
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), word_detection_box, word_tab_label);
+
+    g_signal_connect(notebook, "switch-page", G_CALLBACK(notebook_switch_page_callback), NULL);
 
     results_container = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
     gtk_widget_set_margin_start(results_container, 10);
@@ -129,6 +170,20 @@ int main_gui(int argc, char *argv[]) {
     return 0;
 }
 
+static void notebook_switch_page_callback(GtkNotebook *notebook, GtkWidget *page, guint page_num, gpointer user_data) {
+    if (selected_processing_button != NULL && GTK_IS_WIDGET(selected_processing_button)) {
+        GtkStyleContext *prev_ctx = gtk_widget_get_style_context(selected_processing_button);
+        gtk_style_context_remove_class(prev_ctx, "selected");
+    }
+
+    current_processing_mode = page_num;
+    selected_processing_button = NULL;
+
+    if (current_image_path) {
+        setup_initial_right_panel(current_image_path);
+    }
+}
+
 static void load_image_callback(GtkWidget *widget, gpointer data) {
     show_file_chooser();
 }
@@ -147,7 +202,6 @@ static void show_file_chooser(void) {
                                          GTK_RESPONSE_ACCEPT,
                                          NULL);
 
-    // Add image file filters
     GtkFileFilter *filter = gtk_file_filter_new();
     gtk_file_filter_set_name(filter, "Image files");
     gtk_file_filter_add_mime_type(filter, "image/jpeg");
@@ -177,12 +231,23 @@ static void show_file_chooser(void) {
 
         is_processing = FALSE;
 
-        if (processing_steps_container != NULL) {
-            gtk_widget_destroy(processing_steps_container);
-            processing_steps_container = NULL;
+        if (selected_processing_button != NULL && GTK_IS_WIDGET(selected_processing_button)) {
+            GtkStyleContext *ctx = gtk_widget_get_style_context(selected_processing_button);
+            gtk_style_context_remove_class(ctx, "selected");
         }
-
         selected_processing_button = NULL;
+
+        for (int i = 0; i < 2; i++) {
+            tab_processed[i] = FALSE;
+            if (tab_containers[i] != NULL) {
+                gtk_widget_destroy(tab_containers[i]);
+                tab_containers[i] = NULL;
+            }
+            if (tab_buttons[i] != NULL) {
+                g_list_free_full(tab_buttons[i], free_button_info);
+                tab_buttons[i] = NULL;
+            }
+        }
     }
 
     gtk_widget_destroy(dialog);
@@ -240,7 +305,7 @@ static void setup_initial_right_panel(const gchar *image_path) {
 
     GtkWidget *image_label = gtk_label_new(NULL);
     gtk_label_set_line_wrap(GTK_LABEL(image_label), TRUE);
-    gtk_label_set_markup(GTK_LABEL(image_label), "<i><span size='large'>Original Image</span></i>\n\nClick 'Start Processing' to begin analysis.");
+    gtk_label_set_markup(GTK_LABEL(image_label), "<i><span size='large'>Original Image</span></i>\n\n");
     gtk_label_set_justify(GTK_LABEL(image_label), GTK_JUSTIFY_CENTER);
     gtk_box_pack_start(GTK_BOX(results_container), image_label, TRUE, TRUE, 10);
 
@@ -293,38 +358,40 @@ static void process_callback(GtkWidget *widget, gpointer data) {
 
     animate_image_transition();
 
-    process_image(current_image_path);
+    process_both_modes(current_image_path);
 }
 
 static void create_processing_step_button(const char* step_name, const char* filename) {
-    if (processing_steps_container == NULL) {
-        processing_steps_container = gtk_scrolled_window_new(NULL, NULL);
-        gtk_widget_set_size_request(processing_steps_container, -1, 250);
-        gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(processing_steps_container),
+    GtkWidget *current_page = gtk_notebook_get_nth_page(GTK_NOTEBOOK(notebook), current_processing_mode);
+    GtkWidget *container = tab_containers[current_processing_mode];
+    GtkWidget *button_box = NULL;
+
+    if (container == NULL) {
+        container = gtk_scrolled_window_new(NULL, NULL);
+        gtk_widget_set_size_request(container, -1, 250);
+        gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(container),
                                      GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-        gtk_style_context_add_class(gtk_widget_get_style_context(processing_steps_container), "processing-scroller");
+        gtk_style_context_add_class(gtk_widget_get_style_context(container), "processing-scroller");
 
-        GList *children = gtk_container_get_children(GTK_CONTAINER(image_container));
-        GtkWidget *processing_section = g_list_last(children)->data;
-        g_list_free(children);
+        gtk_box_pack_start(GTK_BOX(current_page), container, TRUE, TRUE, 5);
+        tab_containers[current_processing_mode] = container;
 
-        gtk_box_pack_start(GTK_BOX(processing_section), processing_steps_container, TRUE, TRUE, 5);
-
-        GtkWidget *button_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+        button_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
         gtk_container_set_border_width(GTK_CONTAINER(button_box), 5);
         gtk_style_context_add_class(gtk_widget_get_style_context(button_box), "processing-box");
-        gtk_container_add(GTK_CONTAINER(processing_steps_container), button_box);
-        gtk_widget_show_all(processing_steps_container);
-    }
-
-    GtkWidget *viewport = gtk_bin_get_child(GTK_BIN(processing_steps_container));
-    if (!viewport) {
-        return;
-    }
-
-    GtkWidget *button_box = gtk_bin_get_child(GTK_BIN(viewport));
-    if (!button_box) {
-        return;
+        gtk_container_add(GTK_CONTAINER(container), button_box);
+        gtk_widget_show_all(container);
+    } else {
+        GtkWidget *viewport = gtk_bin_get_child(GTK_BIN(container));
+        if (viewport && GTK_IS_BIN(viewport)) {
+            button_box = gtk_bin_get_child(GTK_BIN(viewport));
+        }
+        if (!button_box) {
+            button_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+            gtk_container_set_border_width(GTK_CONTAINER(button_box), 5);
+            gtk_style_context_add_class(gtk_widget_get_style_context(button_box), "processing-box");
+            gtk_container_add(GTK_CONTAINER(container), button_box);
+        }
     }
 
     GtkWidget *button = gtk_button_new_with_label(step_name);
@@ -338,6 +405,11 @@ static void create_processing_step_button(const char* step_name, const char* fil
     gtk_box_pack_start(GTK_BOX(button_box), button, FALSE, FALSE, 0);
     gtk_widget_show(button);
 
+    ButtonInfo *info = g_new(ButtonInfo, 1);
+    info->step_name = g_strdup(step_name);
+    info->filename = g_strdup(filename);
+    tab_buttons[current_processing_mode] = g_list_append(tab_buttons[current_processing_mode], info);
+
     if (selected_processing_button == NULL) {
         processing_step_callback(button, (gpointer)filename);
     }
@@ -346,7 +418,7 @@ static void create_processing_step_button(const char* step_name, const char* fil
 static void processing_step_callback(GtkWidget *widget, gpointer data) {
     const gchar *filename = (const gchar *)data;
 
-    if (selected_processing_button != NULL) {
+    if (selected_processing_button != NULL && GTK_IS_WIDGET(selected_processing_button)) {
         GtkStyleContext *prev_ctx = gtk_widget_get_style_context(selected_processing_button);
         gtk_style_context_remove_class(prev_ctx, "selected");
     }
@@ -464,7 +536,12 @@ static void process_image(const gchar *image_path) {
         gtk_main_iteration();
     }
 
-    int result = process_wordsearch_image(image_path, create_processing_step_button);
+    int result;
+    if (current_processing_mode == 0) {
+        result = process_wordsearch_image(image_path, create_processing_step_button);
+    } else {
+        result = process_word_detection(image_path, create_processing_step_button);
+    }
 
     gtk_widget_destroy(processing_label);
 
@@ -480,6 +557,8 @@ static void process_image(const gchar *image_path) {
         gtk_box_pack_start(GTK_BOX(results_container), error_label, FALSE, FALSE, 0);
         gtk_widget_show(error_label);
     } else {
+        tab_processed[current_processing_mode] = TRUE;
+
         GtkWidget *success_label = gtk_label_new("Image processed successfully!\n\nUse the buttons on the left to explore each processing step.");
         gtk_label_set_line_wrap(GTK_LABEL(success_label), TRUE);
         gtk_box_pack_start(GTK_BOX(results_container), success_label, FALSE, FALSE, 0);
@@ -489,3 +568,83 @@ static void process_image(const gchar *image_path) {
     is_processing = FALSE;
     gtk_widget_set_sensitive(process_button, TRUE);
 }
+
+static void process_both_modes(const gchar *image_path) {
+    GList *children = gtk_container_get_children(GTK_CONTAINER(results_container));
+    for (GList *iter = children; iter != NULL; iter = iter->next) {
+        gtk_widget_destroy(GTK_WIDGET(iter->data));
+    }
+    g_list_free(children);
+
+    GtkWidget *processing_label = gtk_label_new("Processing image (Grid Detection + Word Detection)...");
+    gtk_label_set_line_wrap(GTK_LABEL(processing_label), TRUE);
+    gtk_box_pack_start(GTK_BOX(results_container), processing_label, FALSE, FALSE, 0);
+    gtk_widget_show(processing_label);
+
+    while (gtk_events_pending()) {
+        gtk_main_iteration();
+    }
+
+    int grid_result = 0;
+    int word_result = 0;
+
+    printf("Processing Grid Detection...\n");
+    int saved_mode = current_processing_mode;
+    current_processing_mode = 0;
+
+    gtk_label_set_text(GTK_LABEL(processing_label), "Processing Grid Detection...");
+    while (gtk_events_pending()) {
+        gtk_main_iteration();
+    }
+
+    grid_result = process_wordsearch_image(image_path, create_processing_step_button);
+    printf("Grid Detection completed with result: %d\n", grid_result);
+
+    current_processing_mode = 1;
+
+    gtk_label_set_text(GTK_LABEL(processing_label), "Processing Word Detection...");
+    while (gtk_events_pending()) {
+        gtk_main_iteration();
+    }
+
+    word_result = process_word_detection(image_path, create_processing_step_button);
+    printf("Word Detection completed with result: %d\n", word_result);
+
+    current_processing_mode = saved_mode;
+
+    gtk_widget_destroy(processing_label);
+
+    if (grid_result != 0 || word_result != 0) {
+        GList *error_children = gtk_container_get_children(GTK_CONTAINER(results_container));
+        for (GList *iter = error_children; iter != NULL; iter = iter->next) {
+            gtk_widget_destroy(GTK_WIDGET(iter->data));
+        }
+        g_list_free(error_children);
+
+        char error_msg[256];
+        if (grid_result != 0 && word_result != 0) {
+            sprintf(error_msg, "Both Grid Detection and Word Detection failed.\nGrid result: %d\nWord result: %d\nCheck console for details.", grid_result, word_result);
+        } else if (grid_result != 0) {
+            sprintf(error_msg, "Grid Detection failed (result: %d), but Word Detection succeeded.\nCheck console for details.", grid_result);
+        } else {
+            sprintf(error_msg, "Word Detection failed (result: %d), but Grid Detection succeeded.\nCheck console for details.", word_result);
+        }
+
+        GtkWidget *error_label = gtk_label_new(error_msg);
+        gtk_label_set_line_wrap(GTK_LABEL(error_label), TRUE);
+        gtk_box_pack_start(GTK_BOX(results_container), error_label, FALSE, FALSE, 0);
+        gtk_widget_show(error_label);
+    } else {
+        tab_processed[0] = TRUE;
+        tab_processed[1] = TRUE;
+
+        GtkWidget *success_label = gtk_label_new("Image processed successfully!\n\nBoth Grid Detection and Word Detection completed.\nUse the buttons on the left to explore each processing step.");
+        gtk_label_set_line_wrap(GTK_LABEL(success_label), TRUE);
+        gtk_box_pack_start(GTK_BOX(results_container), success_label, FALSE, FALSE, 0);
+        gtk_widget_show(success_label);
+    }
+
+    is_processing = FALSE;
+    gtk_widget_set_sensitive(process_button, TRUE);
+}
+
