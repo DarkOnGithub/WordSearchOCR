@@ -1,7 +1,7 @@
 #include "processor.h"
 #include "../preprocessing/preprocessing.h"
-#include "../detection/contour_analysis.h"
-#include "grid.h"
+#include "../analysis/contour_analysis.h"
+#include "../analysis/grid_analysis.h"
 #include <stdio.h>
 #include <stdlib.h>
 

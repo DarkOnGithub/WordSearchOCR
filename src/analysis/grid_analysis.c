@@ -1,4 +1,4 @@
-#include "grid.h"
+#include "grid_analysis.h"
 #include "../image/operations.h"
 #include <stdlib.h>
 #include <stdio.h>

@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <string.h>
-#include "../detection/word_detection.h"
+#include "../wordsearch/word_detection.h"
 #include "../image/image.h"
 
 void extract_word_images(const char* image_path, const BoundingBoxArray* words) {
