@@ -24,6 +24,7 @@ DEPS = $(OBJECTS:.o=.d)
 
 # Test targets
 TEST_TARGET = $(BUILD_DIR)/tests/word_detection_test
+NN_TARGET = $(BUILD_DIR)/nn/XNOR
 
 # GTK3 detection and configuration
 GTK3_AVAILABLE := $(shell pkg-config --exists gtk+-3.0 2>/dev/null && echo "yes" || echo "no")
@@ -43,6 +44,9 @@ all: check-deps dirs $(TARGET)
 # Test target
 test: check-deps dirs $(TEST_TARGET)
 
+# Neural network target
+nn: dirs $(NN_TARGET)
+
 # Check dependencies
 check-deps:
 	@if [ "$(GTK3_AVAILABLE)" != "yes" ]; then \
@@ -61,6 +65,7 @@ dirs:
 	@mkdir -p $(BUILD_DIR)/preprocessing
 	@mkdir -p $(BUILD_DIR)/wordsearch
 	@mkdir -p $(BUILD_DIR)/gui
+	@mkdir -p $(BUILD_DIR)/nn
 	@mkdir -p $(BUILD_DIR)/tests
 
 # Linking
@@ -73,6 +78,11 @@ $(TEST_TARGET): $(TEST_OBJECTS) $(filter-out %/main.o, $(MAIN_OBJECTS))
 	@echo "Linking test $@..."
 	$(CC) $(TEST_OBJECTS) $(filter-out %/main.o, $(MAIN_OBJECTS)) -o $@ $(GTK_LIBS) $(LDFLAGS)
 	@echo "Test build successful! Binary: $@"
+
+$(NN_TARGET): $(BUILD_DIR)/nn/XNOR.o
+	@echo "Linking neural network $@..."
+	$(CC) $(BUILD_DIR)/nn/XNOR.o -o $@ $(LDFLAGS)
+	@echo "Neural network build successful! Binary: $@"
 
 # Compilation with dependency generation
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
@@ -113,6 +123,11 @@ run-test: $(TEST_TARGET)
 	@echo "Running word detection test..."
 	./$(TEST_TARGET)
 
+# Run the neural network program
+run-nn: $(NN_TARGET)
+	@echo "Running XNOR neural network..."
+	./$(NN_TARGET)
+
 # Debug build
 debug: CFLAGS += -DDEBUG -O0
 debug: all
@@ -140,10 +155,12 @@ help:
 	@echo "Available targets:"
 	@echo "  all           - Build the project (default)"
 	@echo "  test          - Build the word detection test program"
+	@echo "  nn            - Build the XNOR neural network example"
 	@echo "  clean         - Remove all build artifacts"
 	@echo "  rebuild       - Clean and rebuild everything"
 	@echo "  run           - Build and run the main program"
 	@echo "  run-test      - Build and run the word detection test"
+	@echo "  run-nn        - Build and run the XNOR neural network"
 	@echo "  debug         - Build with debug flags"
 	@echo "  release       - Build optimized release"
 	@echo "  install-deps  - Install GTK3 dependencies"
@@ -154,4 +171,4 @@ help:
 	@echo "Source directory: $(SRC_DIR)"
 
 # Phony targets
-.PHONY: all test clean rebuild run run-test debug release install-deps check-deps dirs info help
+.PHONY: all test nn clean rebuild run run-test run-nn debug release install-deps check-deps dirs info help
