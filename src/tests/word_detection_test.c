@@ -1,5 +1,5 @@
-#include "../image/image.h"
-#include "../wordsearch/word_detection.h"
+#include "../../include/image/image.h"
+#include "../../include/wordsearch/word_detection.h"
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>

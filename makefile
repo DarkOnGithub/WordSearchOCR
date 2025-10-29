@@ -9,7 +9,7 @@ SRC_DIR = src
 TARGET = $(BUILD_DIR)/$(PROJECT_NAME)
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -g -I$(SRC_DIR)
+CFLAGS = -Wall -Wextra -std=c99 -g -Iinclude
 LDFLAGS = -lm
 
 MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*test*.c" -not -name "*_test.c" -not -name "*XNOR.c")

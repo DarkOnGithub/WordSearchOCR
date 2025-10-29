@@ -1,4 +1,4 @@
-#include "image.h"
+#include "../../include/image/image.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gtk/gtk.h>
 #include <stdio.h>
@@ -332,7 +332,6 @@ void gray_to_rgba(Image *image)
     for (int i = 0; i < pixel_count; i++)
     {
         uint8_t gray_value = gray_pixels[i];
-        // RGBA format: R=X, G=X, B=X, A=255
         image->rgba_pixels[i] = (gray_value << 24) | (gray_value << 16) |
                                (gray_value << 8) | 255;
     }
@@ -505,7 +504,6 @@ void draw_line(Image *image, int x1, int y1, int x2, int y2, uint32_t color)
 
     while (1)
     {
-        // Draw pixel at (x1, y1)
         if (x1 >= 0 && x1 < image->width && y1 >= 0 && y1 < image->height)
         {
             if (image->is_grayscale)

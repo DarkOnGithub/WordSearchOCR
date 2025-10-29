@@ -1,5 +1,5 @@
-#include "operations.h"
-#include "image.h"
+#include "../../include/image/operations.h"
+#include "../../include/image/image.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>

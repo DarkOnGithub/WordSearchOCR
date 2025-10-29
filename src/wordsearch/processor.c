@@ -1,8 +1,8 @@
-#include "processor.h"
-#include "../analysis/contour_analysis.h"
-#include "../analysis/grid_analysis.h"
-#include "../preprocessing/preprocessing.h"
-#include "word_detection.h"
+#include "../../include/wordsearch/processor.h"
+#include "../../include/analysis/contour_analysis.h"
+#include "../../include/analysis/grid_analysis.h"
+#include "../../include/processing/preprocessing.h"
+#include "../../include/wordsearch/word_detection.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <dirent.h>
@@ -31,7 +31,6 @@ int process_wordsearch_image(const char *image_path,
     Image original_image;
     load_image(image_path, &original_image);
 
-    // Extract the grid region
     Image grid_image;
     Rect grid_bounds;
     if (!extract_grid_region(&image, &original_image, &grid_image, &grid_bounds,
@@ -43,7 +42,6 @@ int process_wordsearch_image(const char *image_path,
         return 1;
     }
 
-    // Process the grid for OCR
     if (!process_grid_for_ocr(&grid_image, create_button_callback))
     {
         fprintf(stderr, "Failed to process grid for OCR\n");
@@ -53,7 +51,6 @@ int process_wordsearch_image(const char *image_path,
         return 1;
     }
 
-    // Find contours that could represent letters
     Contours *letters_contours = findContours(&grid_image, 0);
     if (!letters_contours)
     {
@@ -64,7 +61,6 @@ int process_wordsearch_image(const char *image_path,
         return 1;
     }
 
-    // Filter contours based on letter criteria
     Contours *valid_letters = filter_letter_contours(letters_contours);
     if (!valid_letters)
     {
@@ -86,7 +82,6 @@ int process_wordsearch_image(const char *image_path,
     {
         printf("Using line-based detection for grid with inner contours\n");
 
-        // Detect grid lines
         Image horizontal_lines = {0};
         Image vertical_lines = {0};
         detect_grid_lines(&grid_image, &horizontal_lines, &vertical_lines);
@@ -94,7 +89,6 @@ int process_wordsearch_image(const char *image_path,
         save_image("step_09_horizontal_lines.png", &horizontal_lines);
         save_image("step_09_vertical_lines.png", &vertical_lines);
 
-        // Create buttons for line detection steps if callback provided
         if (create_button_callback)
         {
             create_button_callback("Horizontal Lines",
@@ -103,7 +97,6 @@ int process_wordsearch_image(const char *image_path,
                                    "step_09_vertical_lines.png");
         }
 
-        // Extract cell boundaries from lines
         if (!extract_cell_boundaries_from_lines(
                 &horizontal_lines, &vertical_lines, grid_image.width,
                 grid_image.height, &y_boundaries, &x_boundaries, &num_rows,
@@ -128,7 +121,6 @@ int process_wordsearch_image(const char *image_path,
         printf(
             "Using letter-based detection for grid without inner contours\n");
 
-        // Determine the text region based on letter positions
         int crop_offset_x = 0, crop_offset_y = 0;
         if (!determine_text_region(
                 &original_image, grid_bounds.x, grid_bounds.y,
@@ -144,7 +136,6 @@ int process_wordsearch_image(const char *image_path,
             return 1;
         }
 
-        // Determine grid dimensions from letters
         if (determine_grid_dimensions_from_letters(valid_letters, crop_offset_x,
                                                    crop_offset_y, &num_rows,
                                                    &num_cols) != 0)
@@ -159,7 +150,6 @@ int process_wordsearch_image(const char *image_path,
             return 1;
         }
 
-        // Generate cell boundaries based on letter positions
         if (generate_cell_boundaries_from_letters(valid_letters, num_rows, num_cols,
                                                   &y_boundaries, &x_boundaries) != 0)
         {
@@ -175,13 +165,11 @@ int process_wordsearch_image(const char *image_path,
     }
     else
     {
-        // For line detection, use the grid_image as text_region
         cpy_image(&grid_image, &text_region);
     }
 
     save_image("step_08_text_region.png", &text_region);
 
-    // Create button for text region step if callback provided
     if (create_button_callback)
     {
         create_button_callback("Text Region", "step_08_text_region.png");
@@ -206,7 +194,6 @@ int process_wordsearch_image(const char *image_path,
 
     save_image("step_9_grid_region.png", &debug_grid);
 
-    // Create button for grid region step if callback provided
     if (create_button_callback)
     {
         create_button_callback("Grid Region", "step_9_grid_region.png");
@@ -214,14 +201,12 @@ int process_wordsearch_image(const char *image_path,
 
     free_image(&debug_grid);
 
-    // Extract individual cell images
     if (extract_cell_images(&text_region, y_boundaries, x_boundaries, num_rows,
                             num_cols) != 0)
     {
         fprintf(stderr, "Failed to extract cell images\n");
     }
 
-    // Create reconstructed grid from extracted cells
     if (create_reconstructed_grid(num_rows, num_cols, create_button_callback) !=
         0)
     {
@@ -254,7 +239,6 @@ void clear_cells_directory(void)
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL)
     {
-        // Skip . and .. directories and .gitkeep files
         if (strcmp(entry->d_name, ".") == 0 ||
             strcmp(entry->d_name, "..") == 0 ||
             strcmp(entry->d_name, ".gitkeep") == 0)
@@ -262,7 +246,6 @@ void clear_cells_directory(void)
             continue;
         }
 
-        // Remove the file
         char filepath[512];
         snprintf(filepath, sizeof(filepath), "cells/%s", entry->d_name);
         if (unlink(filepath) == 0)
@@ -287,7 +270,6 @@ int extract_cell_images(const Image *grid_region, const int *y_boundaries,
         return 1;
     }
 
-    // Clear the cells directory before extracting new cells
     clear_cells_directory();
 
     printf("Extracting individual cells for OCR processing...\n");
@@ -357,16 +339,14 @@ int create_reconstructed_grid(int num_rows, int num_cols,
     int cell_height = first_cell.height;
     free_image(&first_cell);
 
-    // Add spacing between cells
     int spacing = 5;
     int grid_width = num_cols * cell_width + (num_cols - 1) * spacing;
     int grid_height = num_rows * cell_height + (num_rows - 1) * spacing;
 
-    // Create white background image
     Image reconstructed_grid = {0};
     reconstructed_grid.width = grid_width;
     reconstructed_grid.height = grid_height;
-    reconstructed_grid.is_grayscale = false; // Color image
+    reconstructed_grid.is_grayscale = false;
 
     size_t pixel_count = grid_width * grid_height;
     reconstructed_grid.rgba_pixels =
@@ -378,14 +358,12 @@ int create_reconstructed_grid(int num_rows, int num_cols,
         return 1;
     }
 
-    // Fill with red color for bounds (0xFF0000FF = red)
     for (size_t i = 0; i < pixel_count; i++)
     {
         reconstructed_grid.rgba_pixels[i] =
-            0xFF0000FF; // Red background for bounds
+            0xFF0000FF;
     }
 
-    // Load and place each cell
     for (int row = 0; row < num_rows; row++)
     {
         for (int col = 0; col < num_cols; col++)
@@ -398,14 +376,12 @@ int create_reconstructed_grid(int num_rows, int num_cols,
             if (!cell.rgba_pixels && !cell.gray_pixels)
             {
                 fprintf(stderr, "Failed to load cell image: %s\n", filename);
-                continue; // Skip missing cells
+                continue;
             }
 
-            // Calculate position with spacing (spacing becomes red bounds)
             int dest_x = col * (cell_width + spacing);
             int dest_y = row * (cell_height + spacing);
 
-            // Copy cell to reconstructed grid
             for (int y = 0; y < cell_height && (dest_y + y) < grid_height; y++)
             {
                 for (int x = 0; x < cell_width && (dest_x + x) < grid_width;
@@ -415,14 +391,12 @@ int create_reconstructed_grid(int num_rows, int num_cols,
 
                     if (cell.is_grayscale)
                     {
-                        // Convert grayscale to RGBA
                         uint8_t gray = cell.gray_pixels[y * cell.width + x];
                         reconstructed_grid.rgba_pixels[dest_idx] =
                             (gray << 24) | (gray << 16) | (gray << 8) | gray;
                     }
                     else
                     {
-                        // Copy RGBA pixel directly
                         reconstructed_grid.rgba_pixels[dest_idx] =
                             cell.rgba_pixels[y * cell.width + x];
                     }
@@ -433,10 +407,8 @@ int create_reconstructed_grid(int num_rows, int num_cols,
         }
     }
 
-    // Save the reconstructed grid
     save_image("step_10_reconstructed_grid.png", &reconstructed_grid);
 
-    // Create button for reconstructed grid step if callback provided
     if (create_button_callback)
     {
         create_button_callback("Reconstructed Grid",
@@ -456,7 +428,6 @@ int determine_grid_dimensions_from_letters(Contours *valid_letters,
         return 1;
     }
 
-    // Translate contours to match the cropped text region coordinate system
     translateContours(valid_letters, -crop_offset_x, -crop_offset_y);
 
 #define ROW_TOLERANCE 10
@@ -636,7 +607,6 @@ int generate_cell_boundaries_from_letters(Contours *valid_letters, int num_rows,
         return 1;
     }
 
-    // Allocate boundary arrays
     *y_boundaries = (int *)malloc(sizeof(int) * (num_rows + 1));
     *x_boundaries = (int *)malloc(sizeof(int) * (num_cols + 1));
     if (!*y_boundaries || !*x_boundaries)
@@ -649,7 +619,6 @@ int generate_cell_boundaries_from_letters(Contours *valid_letters, int num_rows,
         return 1;
     }
 
-    // Group letters into rows (similar to determine_grid_dimensions_from_letters)
 #define ROW_TOLERANCE 10
 
     LetterRow *rows = NULL;
@@ -665,7 +634,7 @@ int generate_cell_boundaries_from_letters(Contours *valid_letters, int num_rows,
             continue;
         }
 
-        int letter_y = rect.y + rect.height / 2; // Use center of letter
+        int letter_y = rect.y + rect.height / 2;
         int found_row_idx = -1;
 
         for (int j = 0; j < actual_num_rows; j++)
@@ -725,7 +694,6 @@ int generate_cell_boundaries_from_letters(Contours *valid_letters, int num_rows,
         row->letters[row->count++] = rect;
     }
 
-    // Sort rows by Y position
     for (int i = 0; i < actual_num_rows - 1; i++)
     {
         for (int j = i + 1; j < actual_num_rows; j++)
@@ -739,7 +707,6 @@ int generate_cell_boundaries_from_letters(Contours *valid_letters, int num_rows,
         }
     }
 
-    // Generate Y boundaries based on row gaps
     if (actual_num_rows > 0)
     {
         // Find minimum and maximum Y positions across all letters
@@ -799,7 +766,7 @@ int generate_cell_boundaries_from_letters(Contours *valid_letters, int num_rows,
         (*y_boundaries)[0] = 0;
         for (int i = 1; i <= num_rows; i++)
         {
-            (*y_boundaries)[i] = i * 50; // Arbitrary spacing
+            (*y_boundaries)[i] = i * 50; //because why not
         }
     }
 
@@ -846,7 +813,6 @@ int generate_cell_boundaries_from_letters(Contours *valid_letters, int num_rows,
             }
         }
 
-        // Set left boundary
         (*x_boundaries)[0] = min_x;
 
         // For multiple columns, place boundaries at centers of gaps between letters
@@ -865,7 +831,7 @@ int generate_cell_boundaries_from_letters(Contours *valid_letters, int num_rows,
         // Fill remaining boundaries if needed
         for (int i = reference_row->count; i < num_cols; i++)
         {
-            (*x_boundaries)[i] = (*x_boundaries)[i-1] + 50; // Arbitrary spacing
+            (*x_boundaries)[i] = (*x_boundaries)[i-1] + 50; //still because why not
         }
 
         // Set right boundary
@@ -877,11 +843,10 @@ int generate_cell_boundaries_from_letters(Contours *valid_letters, int num_rows,
         (*x_boundaries)[0] = 0;
         for (int i = 1; i <= num_cols; i++)
         {
-            (*x_boundaries)[i] = i * 50; // Arbitrary spacing
+            (*x_boundaries)[i] = i * 50; //still still because why not :)
         }
     }
 
-    // Clean up
     for (int i = 0; i < actual_num_rows; i++)
     {
         free(rows[i].letters);
@@ -920,8 +885,6 @@ int process_word_detection(const char *image_path,
                                "word_detection_02_blurred.png");
         create_button_callback("Otsu Threshold",
                                "word_detection_03_otsu_threshold.png");
-        create_button_callback("Adaptive Threshold",
-                               "word_detection_04_adaptive_threshold.png");
         create_button_callback("Mean Threshold",
                                "word_detection_05_mean_threshold.png");
         create_button_callback("Combined Threshold",

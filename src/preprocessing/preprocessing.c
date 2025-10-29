@@ -1,6 +1,6 @@
-#include "preprocessing.h"
-#include "../analysis/contour_analysis.h"
-#include "../analysis/grid_analysis.h"
+#include "../../include/processing/preprocessing.h"
+#include "../../include/analysis/contour_analysis.h"
+#include "../../include/analysis/grid_analysis.h"
 #include <stdio.h>
 
 int load_and_preprocess_image(const char *image_path, Image *image,
@@ -60,7 +60,6 @@ int extract_grid_region(const Image *processed_image,
         return 0;
     }
 
-    // First, try to detect grid lines for more accurate grid boundary detection
     Image horizontal_lines = {0};
     Image vertical_lines = {0};
     detect_grid_lines(processed_image, &horizontal_lines, &vertical_lines);
@@ -69,15 +68,12 @@ int extract_grid_region(const Image *processed_image,
     if (horizontal_lines.width > 0 && horizontal_lines.height > 0 &&
         vertical_lines.width > 0 && vertical_lines.height > 0)
     {
-        // Find contours in the detected lines
         Contours *horiz_contours = findContours(&horizontal_lines, 0);
         Contours *vert_contours = findContours(&vertical_lines, 0);
 
         if (horiz_contours && vert_contours &&
             horiz_contours->count >= 2 && vert_contours->count >= 2)
         {
-            // Filter contours by length - they should span at least 40% of the grid
-            // width/height (less strict than has_proper_grid_lines)
             double min_horiz_length = processed_image->width * 0.4;
             double min_vert_length = processed_image->height * 0.4;
 

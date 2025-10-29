@@ -1,5 +1,5 @@
-#include "gui/gui.h"
-#include "wordsearch/processor.h"
+#include "../include/gui/gui.h"
+#include "../include/wordsearch/processor.h"
 #include <stddef.h>
 
 int main(int argc, char *argv[])

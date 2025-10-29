@@ -1,6 +1,6 @@
-#include "word_detection.h"
-#include "../image/image.h"
-#include "../image/operations.h"
+#include "../../include/wordsearch/word_detection.h"
+#include "../../include/image/image.h"
+#include "../../include/image/operations.h"
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -113,7 +113,6 @@ BoundingBoxArray *merge_nearby_boxes(const BoundingBoxArray *boxes, int max_gap,
         addBoundingBox(sorted_boxes, boxes->boxes[i]);
     }
 
-    // Bubble sort by x coordinate
     for (int i = 0; i < sorted_boxes->count - 1; i++)
     {
         for (int j = 0; j < sorted_boxes->count - i - 1; j++)
@@ -151,7 +150,6 @@ BoundingBoxArray *merge_nearby_boxes(const BoundingBoxArray *boxes, int max_gap,
         int cw1 = current_box.width;
         int ch1 = current_box.height;
 
-        // Calculate vertical overlap
         int overlap_start = (cy1 > y) ? cy1 : y;
         int overlap_end = (cy1 + ch1 < y + h) ? (cy1 + ch1) : (y + h);
         int y_overlap =
@@ -218,7 +216,6 @@ WordGroups *find_word_groups(const BoundingBoxArray *boxes, int max_distance,
         addBoundingBox(sorted_boxes, boxes->boxes[i]);
     }
 
-    // Bubble sort by y coordinate
     for (int i = 0; i < sorted_boxes->count - 1; i++)
     {
         for (int j = 0; j < sorted_boxes->count - i - 1; j++)
@@ -269,7 +266,6 @@ WordGroups *find_word_groups(const BoundingBoxArray *boxes, int max_distance,
             }
             else
             {
-                // Sort current row by x coordinate
                 for (int j = 0; j < current_row->count - 1; j++)
                 {
                     for (int k = 0; k < current_row->count - j - 1; k++)
@@ -302,7 +298,6 @@ WordGroups *find_word_groups(const BoundingBoxArray *boxes, int max_distance,
 
         if (current_row->count > 0)
         {
-            // Sort current row by x coordinate
             for (int j = 0; j < current_row->count - 1; j++)
             {
                 for (int k = 0; k < current_row->count - j - 1; k++)
@@ -338,7 +333,6 @@ WordGroups *find_word_groups(const BoundingBoxArray *boxes, int max_distance,
         return rows;
     }
 
-    // Calculate vertical gaps between rows
     float *vertical_gaps = malloc((rows->count - 1) * sizeof(float));
     if (!vertical_gaps)
     {
@@ -369,10 +363,9 @@ WordGroups *find_word_groups(const BoundingBoxArray *boxes, int max_distance,
         vertical_gaps[i] = row2_y - row1_y;
     }
 
-    // Find the most common gap (rounded to nearest 10)
     int *gap_counts = calloc(
         1000,
-        sizeof(int)); // The gap won't be more than 1000 pixels (I hope :))
+        sizeof(int)); // The gap shouldn't be more than 1000 pixels (I hope :))
     if (!gap_counts)
     {
         free(vertical_gaps);
@@ -404,7 +397,6 @@ WordGroups *find_word_groups(const BoundingBoxArray *boxes, int max_distance,
     free(gap_counts);
     free(vertical_gaps);
 
-    // Group rows based on the most common gap
     WordGroups *groups = malloc(sizeof(WordGroups));
     if (!groups)
     {
@@ -526,7 +518,6 @@ BoundingBoxArray *select_main_word_group(const WordGroups *groups)
 
     if (largest_size >= 2)
     {
-        // Copy the largest group
         BoundingBoxArray *result = malloc(sizeof(BoundingBoxArray));
         if (!result)
         {
@@ -591,8 +582,7 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         save_image(debug_path, &image);
     }
 
-    // Step 2: Gaussian blur
-    gaussian_blur(&image, 5, 0.0); // kernel_size=5, sigma=0 (auto-calculated)
+    gaussian_blur(&image, 5, 0.0);
 
     if (debug_prefix)
     {
@@ -602,9 +592,7 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         save_image(debug_path, &image);
     }
 
-    // Step 3: Otsu's thresholding
     threshold(&image, 255);
-    // Invert the result, THRESH_BINARY_INV + THRESH_OTSU
     correctBinaryImageOrientation(&image);
 
     if (debug_prefix)
@@ -615,19 +603,11 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         save_image(debug_path, &image);
     }
 
-    // Image original_blurred;
-    // load_image(image_path, &original_blurred);
-    // convert_to_grayscale(&original_blurred);
-    // gaussian_blur(&original_blurred, 5, 0.0);
-
-    // Step 4: Adaptive thresholding
-
     Image original_blurred2;
     load_image(image_path, &original_blurred2);
     convert_to_grayscale(&original_blurred2);
     gaussian_blur(&original_blurred2, 5, 0.0);
 
-    // Step 5: Mean thresholding
     int total_pixels = original_blurred2.width * original_blurred2.height;
     double mean_val = 0.0;
     for (int i = 0; i < total_pixels; i++)
@@ -650,8 +630,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         save_image(debug_path, &image);
     }
 
-    // Step 6: Combine thresholds with bitwise OR
-    // Note: We need to combine the three thresholded images
     Image combined_threshold;
     combined_threshold.width = image.width;
     combined_threshold.height = image.height;
@@ -668,7 +646,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         return NULL;
     }
 
-    // Combine all three thresholds
     for (int i = 0; i < total_pixels; i++)
     {
         uint8_t val1 = image.gray_pixels[i];             // Otsu result
@@ -686,7 +663,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
 
     free_image(&original_blurred2);
 
-    // Step 7: Morphological operations
     StructuringElement *kernel_small =
         getStructuringElement(0, 2, 2); // MORPH_RECT, 2x2
     StructuringElement *kernel_large =
@@ -700,7 +676,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         return NULL;
     }
 
-    // Close operation
     morphologyEx(&combined_threshold, MORPH_CLOSE, kernel_large, 2);
 
     if (debug_prefix)
@@ -711,7 +686,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         save_image(debug_path, &combined_threshold);
     }
 
-    // Dilate
     morphologyEx(&combined_threshold, MORPH_DILATE, kernel_large, 3);
 
     if (debug_prefix)
@@ -722,7 +696,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         save_image(debug_path, &combined_threshold);
     }
 
-    // Erode
     morphologyEx(&combined_threshold, MORPH_ERODE, kernel_small, 2);
 
     if (debug_prefix)
@@ -736,7 +709,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
     freeStructuringElement(kernel_small);
     freeStructuringElement(kernel_large);
 
-    // Step 8: Find contours
     Contours *contours = findContours(&combined_threshold, 1); // RETR_LIST
     if (!contours)
     {
@@ -746,7 +718,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
         return NULL;
     }
 
-    // Step 9: Filter contours to get text regions
     BoundingBoxArray *text_regions = malloc(sizeof(BoundingBoxArray));
     if (!text_regions)
     {
@@ -794,7 +765,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
 
     printf("Found %d filtered text regions\n", text_regions->count);
 
-    // Step 10: Merge nearby boxes
     BoundingBoxArray *merged_boxes = merge_nearby_boxes(text_regions, 20, 0.3);
 
     freeBoundingBoxArray(text_regions);
@@ -808,7 +778,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
 
     printf("Found %d merged boxes\n", merged_boxes->count);
 
-    // Step 11: Further filtering of merged boxes
     BoundingBoxArray *filtered_regions = malloc(sizeof(BoundingBoxArray));
     if (!filtered_regions)
     {
@@ -843,7 +812,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
                box.height);
     }
 
-    // Step 12: Find word groups
     WordGroups *groups = find_word_groups(filtered_regions, 150, 15);
 
     if (!groups)
@@ -856,7 +824,6 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
 
     printf("Found %d word groups\n", groups->count);
 
-    // Step 13: Select main word group
     BoundingBoxArray *main_group = select_main_word_group(groups);
 
     if (main_group)
