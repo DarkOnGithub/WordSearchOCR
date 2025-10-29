@@ -267,7 +267,7 @@ void clear_cells_directory(void)
         snprintf(filepath, sizeof(filepath), "cells/%s", entry->d_name);
         if (unlink(filepath) == 0)
         {
-            printf("Removed: %s\n", filepath);
+            // printf("Removed: %s\n", filepath);
         }
         else
         {

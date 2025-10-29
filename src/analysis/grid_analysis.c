@@ -2,6 +2,8 @@
 #include "../image/operations.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
+#include <limits.h>
 
 int has_proper_grid_lines(const Image *grid_region)
 {
@@ -81,6 +83,348 @@ int has_proper_grid_lines(const Image *grid_region)
                "detection\n");
         return 0;
     }
+}
+
+/**
+ * Merge colinear contour segments that belong to the same line and extend short lines
+ * to match the average length of other lines.
+ * @param contours Input contours (will be modified/freed)
+ * @param is_horizontal True for horizontal lines, false for vertical lines
+ * @param grid_dimension Width for horizontal lines, height for vertical lines
+ * @return New contours with merged and extended lines
+ */
+Contours *merge_colinear_segments_and_extend(Contours *contours, int is_horizontal,
+                                           int grid_dimension)
+{
+    if (!contours || contours->count == 0)
+        return NULL;
+
+    // Calculate tolerance for colinearity (pixels)
+    const int COLINEAR_TOLERANCE = 5; // Max distance to be considered colinear
+    const int GAP_TOLERANCE = 20;     // Max gap between segments to merge
+
+    // Group contours by their axis position (Y for horizontal, X for vertical)
+    typedef struct {
+        Contour *contours;
+        int count;
+        int capacity;
+        int axis_position; // Y coordinate for horizontal, X for vertical
+    } LineGroup;
+
+    LineGroup *groups = NULL;
+    int group_count = 0;
+    int group_capacity = 0;
+
+    // Sort contours by bounding box position
+    for (int i = 0; i < contours->count - 1; i++)
+    {
+        for (int j = 0; j < contours->count - i - 1; j++)
+        {
+            Rect rect1, rect2;
+            boundingRect(&contours->contours[j], &rect1);
+            boundingRect(&contours->contours[j + 1], &rect2);
+
+            int pos1 = is_horizontal ? rect1.y : rect1.x;
+            int pos2 = is_horizontal ? rect2.y : rect2.x;
+
+            if (pos1 > pos2)
+            {
+                Contour temp = contours->contours[j];
+                contours->contours[j] = contours->contours[j + 1];
+                contours->contours[j + 1] = temp;
+            }
+        }
+    }
+
+    // Group colinear contours
+    for (int i = 0; i < contours->count; i++)
+    {
+        Rect rect;
+        boundingRect(&contours->contours[i], &rect);
+        int axis_pos = is_horizontal ? rect.y : rect.x;
+
+        // Find existing group or create new one
+        int group_idx = -1;
+        for (int g = 0; g < group_count; g++)
+        {
+            if (abs(groups[g].axis_position - axis_pos) <= COLINEAR_TOLERANCE)
+            {
+                group_idx = g;
+                break;
+            }
+        }
+
+        if (group_idx == -1)
+        {
+            // Create new group
+            if (group_count >= group_capacity)
+            {
+                group_capacity = group_capacity == 0 ? 8 : group_capacity * 2;
+                groups = realloc(groups, sizeof(LineGroup) * group_capacity);
+                if (!groups) return NULL;
+            }
+
+            groups[group_count].contours = NULL;
+            groups[group_count].count = 0;
+            groups[group_count].capacity = 0;
+            groups[group_count].axis_position = axis_pos;
+            group_idx = group_count++;
+        }
+
+        // Add contour to group
+        LineGroup *group = &groups[group_idx];
+        if (group->count >= group->capacity)
+        {
+            group->capacity = group->capacity == 0 ? 4 : group->capacity * 2;
+            group->contours = realloc(group->contours, sizeof(Contour) * group->capacity);
+            if (!group->contours) return NULL;
+        }
+        group->contours[group->count++] = contours->contours[i];
+    }
+
+    // Free original contours structure (but keep the actual contours)
+    free(contours->contours);
+    free(contours);
+
+    // Now merge segments within each group and create new contours
+    Contours *result = (Contours *)malloc(sizeof(Contours));
+    if (!result) goto cleanup;
+
+    result->contours = NULL;
+    result->count = 0;
+    result->capacity = group_count > 0 ? group_count : 1;
+
+    result->contours = (Contour *)malloc(sizeof(Contour) * result->capacity);
+    if (!result->contours) goto cleanup;
+
+    // Process each group
+    for (int g = 0; g < group_count; g++)
+    {
+        LineGroup *group = &groups[g];
+        if (group->count == 0) continue;
+
+        // Sort contours in group by their start position
+        for (int i = 0; i < group->count - 1; i++)
+        {
+            for (int j = 0; j < group->count - i - 1; j++)
+            {
+                Rect rect1, rect2;
+                boundingRect(&group->contours[j], &rect1);
+                boundingRect(&group->contours[j + 1], &rect2);
+
+                int start1 = is_horizontal ? rect1.x : rect1.y;
+                int start2 = is_horizontal ? rect2.x : rect2.y;
+
+                if (start1 > start2)
+                {
+                    Contour temp = group->contours[j];
+                    group->contours[j] = group->contours[j + 1];
+                    group->contours[j + 1] = temp;
+                }
+            }
+        }
+
+        // Merge overlapping or adjacent segments
+        Contour merged_contour;
+        merged_contour.points = NULL;
+        merged_contour.count = 0;
+        merged_contour.capacity = 0;
+
+        int min_pos = INT_MAX;
+        int max_pos = INT_MIN;
+
+        for (int i = 0; i < group->count; i++)
+        {
+            Rect rect;
+            boundingRect(&group->contours[i], &rect);
+
+            int start_pos = is_horizontal ? rect.x : rect.y;
+            int end_pos = is_horizontal ? (rect.x + rect.width) : (rect.y + rect.height);
+
+            // Check if this segment can be merged with previous
+            if (i > 0)
+            {
+                int prev_end_pos = is_horizontal ?
+                    (merged_contour.points[merged_contour.count - 1].x) :
+                    (merged_contour.points[merged_contour.count - 1].y);
+
+                if (abs(start_pos - prev_end_pos) <= GAP_TOLERANCE)
+                {
+                    // Merge: extend the end
+                    if (is_horizontal)
+                    {
+                        // Extend horizontally
+                        merged_contour.points[merged_contour.count - 1].x = end_pos;
+                    }
+                    else
+                    {
+                        // Extend vertically
+                        merged_contour.points[merged_contour.count - 1].y = end_pos;
+                    }
+                    max_pos = end_pos > max_pos ? end_pos : max_pos;
+                    continue;
+                }
+            }
+
+            // Start new segment or add first point
+            if (merged_contour.count == 0)
+            {
+                // First segment - create start and end points
+                merged_contour.capacity = 4;
+                merged_contour.points = (Point *)malloc(sizeof(Point) * merged_contour.capacity);
+                if (!merged_contour.points) goto cleanup;
+
+                // Start point
+                merged_contour.points[0].x = is_horizontal ? start_pos : group->axis_position;
+                merged_contour.points[0].y = is_horizontal ? group->axis_position : start_pos;
+                merged_contour.count = 1;
+            }
+
+            // Add end point of this segment
+            if (merged_contour.count >= merged_contour.capacity)
+            {
+                merged_contour.capacity *= 2;
+                merged_contour.points = realloc(merged_contour.points,
+                    sizeof(Point) * merged_contour.capacity);
+                if (!merged_contour.points) goto cleanup;
+            }
+
+            merged_contour.points[merged_contour.count].x = is_horizontal ? end_pos : group->axis_position;
+            merged_contour.points[merged_contour.count].y = is_horizontal ? group->axis_position : end_pos;
+            merged_contour.count++;
+
+            min_pos = start_pos < min_pos ? start_pos : min_pos;
+            max_pos = end_pos > max_pos ? end_pos : max_pos;
+        }
+
+        // Store the merged contour
+        if (result->count >= result->capacity)
+        {
+            result->capacity *= 2;
+            result->contours = realloc(result->contours, sizeof(Contour) * result->capacity);
+            if (!result->contours) goto cleanup;
+        }
+
+        result->contours[result->count++] = merged_contour;
+
+        // Free individual contours in group
+        for (int i = 0; i < group->count; i++)
+        {
+            if (group->contours[i].points)
+                free(group->contours[i].points);
+        }
+        free(group->contours);
+    }
+
+    // Calculate average length for extension
+    double total_length = 0;
+    int valid_lines = 0;
+
+    for (int i = 0; i < result->count; i++)
+    {
+        double length = arcLength(&result->contours[i], 0);
+        if (length > 0)
+        {
+            total_length += length;
+            valid_lines++;
+        }
+    }
+
+    double avg_length = valid_lines > 0 ? total_length / valid_lines : grid_dimension * 0.8;
+
+    // Extend short lines to match average length
+    for (int i = 0; i < result->count; i++)
+    {
+        Contour *contour = &result->contours[i];
+        double current_length = arcLength(contour, 0);
+
+        if (current_length < avg_length * 0.7) // If less than 70% of average
+        {
+            // Extend the line to target length
+            int target_length = (int)avg_length;
+
+            if (contour->count >= 2)
+            {
+                // Get start and end points
+                Point start = contour->points[0];
+                Point end = contour->points[contour->count - 1];
+
+                // Calculate direction vector
+                int dx = end.x - start.x;
+                int dy = end.y - start.y;
+
+                // Calculate current length
+                double current_len = sqrt(dx*dx + dy*dy);
+                if (current_len > 0)
+                {
+                    // Normalize and scale to target length
+                    double scale = target_length / current_len;
+
+                    // Extend from both ends or just one end?
+                    // For now, extend from the center outward
+                    int center_x = (start.x + end.x) / 2;
+                    int center_y = (start.y + end.y) / 2;
+
+                    int new_start_x = center_x - (int)(dx * scale / 2);
+                    int new_start_y = center_y - (int)(dy * scale / 2);
+                    int new_end_x = center_x + (int)(dx * scale / 2);
+                    int new_end_y = center_y + (int)(dy * scale / 2);
+
+                    // Clamp to grid boundaries
+                    if (is_horizontal)
+                    {
+                        new_start_x = new_start_x < 0 ? 0 : new_start_x;
+                        new_end_x = new_end_x > grid_dimension ? grid_dimension : new_end_x;
+                        contour->points[0].x = new_start_x;
+                        contour->points[contour->count - 1].x = new_end_x;
+                    }
+                    else
+                    {
+                        new_start_y = new_start_y < 0 ? 0 : new_start_y;
+                        new_end_y = new_end_y > grid_dimension ? grid_dimension : new_end_y;
+                        contour->points[0].y = new_start_y;
+                        contour->points[contour->count - 1].y = new_end_y;
+                    }
+                }
+            }
+        }
+    }
+
+    // Cleanup
+    free(groups);
+    return result;
+
+cleanup:
+    if (groups)
+    {
+        for (int g = 0; g < group_count; g++)
+        {
+            if (groups[g].contours)
+            {
+                for (int i = 0; i < groups[g].count; i++)
+                {
+                    if (groups[g].contours[i].points)
+                        free(groups[g].contours[i].points);
+                }
+                free(groups[g].contours);
+            }
+        }
+        free(groups);
+    }
+    if (result)
+    {
+        if (result->contours)
+        {
+            for (int i = 0; i < result->count; i++)
+            {
+                if (result->contours[i].points)
+                    free(result->contours[i].points);
+            }
+            free(result->contours);
+        }
+        free(result);
+    }
+    return NULL;
 }
 
 void detect_grid_lines(const Image *binary_grid, Image *horizontal_lines,
@@ -163,6 +507,21 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
         filterContoursByLength(vert_contours, grid_height * 0.2);
     freeContours(vert_contours);
 
+    // Merge colinear segments and extend short lines
+    Contours *processed_horiz = merge_colinear_segments_and_extend(filtered_horiz, 1, grid_width);
+    Contours *processed_vert = merge_colinear_segments_and_extend(filtered_vert, 0, grid_height);
+
+    if (!processed_horiz || !processed_vert)
+    {
+        if (processed_horiz) freeContours(processed_horiz);
+        if (processed_vert) freeContours(processed_vert);
+        return 0;
+    }
+
+    // Replace filtered contours with processed ones
+    filtered_horiz = processed_horiz;
+    filtered_vert = processed_vert;
+
     if (!filtered_horiz || !filtered_vert)
     {
         if (filtered_horiz)
@@ -227,6 +586,8 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
 
         // Extract Y boundaries - distribute evenly if we have fewer than
         // expected
+        printf("Filtered horizontal count: %d\n", filtered_horiz->count);
+        printf("Grid size lines: %d\n", grid_size_lines);
         if (filtered_horiz->count >= grid_size_lines)
         {
             for (int i = 0; i < grid_size_lines; i++)
@@ -295,6 +656,8 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
         }
     }
 
+    printf("Filtered vertical count: %d\n", filtered_vert->count);
+    printf("Grid size lines: %d\n", grid_size_lines);
     // Sort and extract X boundaries from vertical lines
     if (filtered_vert->count > 0)
     {
