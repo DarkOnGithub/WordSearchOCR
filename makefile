@@ -8,7 +8,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -g -Iinclude
 LDFLAGS = -lm
 
-MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*XNOR.c")
+MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*XNOR.c" -not -path "*/solver/main.c" -not -path "*/tests/*")
 MAIN_OBJECTS = $(MAIN_SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 DEPS = $(MAIN_OBJECTS:.o=.d)
 
