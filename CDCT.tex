@@ -37,20 +37,20 @@
 
 \section{Extraction de la grille et des mots}
 
-Nous prendrons comme exemples 3 images, de chaque niveau.
+Nous prendrons comme exemples ces 3 images :
 
 \begin{figure}[!htb]
     \minipage{0.30\textwidth}
-      \includegraphics[width=\linewidth]{images/level_1_image_1.png}
-      \caption{}
+      \includegraphics[width=\linewidth]{ressources/image_1.png}
+      \caption{Grille avec du bruit et difficilement lisible}
     \endminipage\hfill
-    \minipage{0.33\textwidth}
-      \includegraphics[width=\linewidth]{images/level_2_image_1_rotated_25.0deg.png}
-      \caption{}
+    \minipage{0.30\textwidth}
+      \includegraphics[width=\linewidth]{ressources/image_2.png}
+      \caption{Grille avec des éléments autours et beaucoup de grain}
     \endminipage\hfill
     \minipage{0.26\textwidth}%
-      \includegraphics[width=\linewidth]{images/level_3_image_2.png}
-      \caption{}
+      \includegraphics[width=\linewidth]{ressources/image_3.png}
+      \caption{Grille avec des éléments autours, froissée et avec des zones d'exposition différentes}
     \endminipage
 \end{figure}
 
@@ -65,9 +65,9 @@ Après avoir chargé l'image, on commence par la pré-traitement de l'image pour
 
 \subsubsection{Transformation en niveaux de gris}
 \begin{figure}[!htb]
-    \stepimage[0.30\textwidth]{1step_01_grayscale.png}{}
-    \stepimage[0.33\textwidth]{2step_01_grayscale.png}{}
-    \stepimage[0.26\textwidth]{3step_01_grayscale.png}{}
+    \stepimage[0.30\textwidth]{image_1_step_01_grayscale.png}{}
+    \stepimage[0.30\textwidth]{image_2_step_01_grayscale.png}{}
+    \stepimage[0.26\textwidth]{image_3_step_01_grayscale.png}{}
 \end{figure}
 On commence par transformer l'image en niveaux de gris pour la rendre plus facile à traiter.
 En utilisant la formule de luminance standard :
@@ -81,88 +81,46 @@ Où $R$, $G$ et $B$ sont les valeurs des composantes rouge, vert et bleu de l'im
 
 \subsection{Débruitage adaptatif}
 \begin{figure}[!htb]
-    \stepimage[0.30\textwidth]{1step_02_adaptive_denoise.png}{}
-    \stepimage[0.33\textwidth]{2step_02_adaptive_denoise.png}{}
-    \stepimage[0.26\textwidth]{3step_02_adaptive_denoise.png}{}
+    \stepimage[0.30\textwidth]{image_1_step_02_adaptive_denoise.png}{}
+    \stepimage[0.30\textwidth]{image_2_step_02_adaptive_denoise.png}{}
+    \stepimage[0.26\textwidth]{image_3_step_02_adaptive_denoise.png}{}
 \end{figure}
-Pour adapter le débruitage à chaque image, nous devons d'abord estimer son niveau de bruit. Cette estimation est réalisée en analysant la variance locale de l'intensité des pixels. La méthode se décompose en plusieurs étapes :
-
-\paragraph{1. Échantillonnage de fenêtres locales}
-On sélectionne un ensemble de petites fenêtres \(W_s\) (de \(N\) pixels chacune) à travers l'image, centrées en des points (s). Par exemple, une fenêtre de \(3 \times 3\) pixels contient \(N=9\) pixels.
-
-\paragraph{2. Calcul de la moyenne et de la variance locales}
-Pour chaque fenêtre \(W_s\), on calcule d'abord l'intensité moyenne des pixels \(\mu_s\) :
+Le niveau de bruit est estimé par la variance locale (\(3 \times 3\) pixels) des intensités :
 \[
-\mu_s = \frac{1}{N} \sum_{p \in W_s} I(p)
+\sigma_{\text{bruit}}^{2} = \frac{1}{|S|} \sum_{s \in S} \frac{1}{N} \sum_{p \in W_s} \big(I(p) - \mu_s\big)^2, \quad \mu_s = \frac{1}{N} \sum_{p \in W_s} I(p)
 \]
-Ensuite, on calcule la variance locale \(v_s\), qui mesure la dispersion des intensités autour de la moyenne :
-\[
-v_s = \frac{1}{N} \sum_{p \in W_s} \big(I(p) - \mu_s\big)^2
-\]
-
-\paragraph{3. Estimation de la variance du bruit}
-La variance du bruit dans l'image, notée \(\sigma_{\text{bruit}}^{2}\), est estimée en faisant la moyenne de toutes les variances locales calculées à l'étape précédente :
-\[
-\sigma_{\text{bruit}}^{2} = \frac{1}{|S|} \sum_{s \in S} v_s
-\]
-
-\paragraph{4. Normalisation du niveau de bruit}
-Enfin, pour obtenir un paramètre utilisable par l'algorithme de débruitage, on normalise cette variance pour obtenir un niveau de bruit \(\eta\) compris entre 0 et 1 :
-\[
-\eta = \min\!\left(1, \; \frac{\sigma_{\text{bruit}}^{2}}{1000}\right)
-\]
-
-\paragraph{Application du filtre gaussien}
-En fonction du niveau de bruit \(\eta\) calculé, un filtre de flou gaussien avec des paramètres variables est appliqué :
+Cette étape vise à légèrement réduire le bruit pour faciliter les traitements ultérieurs, plutôt qu'à l'éliminer parfaitement.
+\newline
+Un niveau de bruit normalisé \(\eta = \min(1, \sigma_{\text{bruit}}^{2}/1000)\) ajuste les paramètres du filtre gaussien :
 \begin{itemize}
-    \item Si $\eta < 0.1$ (bruit faible) : un noyau de \(3 \times 3\) avec \(\sigma = 0.5\) est utilisé.
-    \item Si $0.1 \leq \eta < 0.3$ (bruit modéré) : un noyau de \(3 \times 3\) avec \(\sigma = 1.0\) est utilisé.
-    \item Si $\eta \geq 0.3$ (bruit élevé) : un noyau de \(5 \times 5\) avec \(\sigma = 1.5\) est utilisé.
+    \item $\eta < 0.1$ : noyau $3\times3$, $\sigma=0.5$
+    \item $0.1 \leq \eta < 0.3$ : noyau $3\times3$, $\sigma=1.0$
+    \item $\eta \geq 0.3$ : noyau $5\times5$, $\sigma=1.5$
 \end{itemize}
-L'opération de flou gaussien est définie par :
-\[
-\operatorname{GaussianBlur(Image, k, \sigma)}[x,y] = \sum_{i=-r}^{r} \sum_{j=-r}^{r} w_{i,j}\, Image[x-i, y-j]
-\]
-où \(k\) est la taille du noyau (\(r = (k-1)/2\)), \(\sigma\) est l'écart-type, et \(w_{i,j}\) sont les poids du noyau gaussien :
-\[
-w_{i,j} = \frac{\exp\!\left(-\dfrac{i^{2}+j^{2}}{2\,\sigma^{2}}\right)}{\displaystyle \sum_{u=-r}^{r} \sum_{v=-r}^{r} \exp\!\left(-\dfrac{u^{2}+v^{2}}{2\,\sigma^{2}}\right)}
-\]
 
 \subsection{Seuil adaptatif}
 \begin{figure}[!htb]
-    \stepimage[0.30\textwidth]{1step_03_threshold.png}{}
-    \stepimage[0.33\textwidth]{2step_03_threshold.png}{}
-    \stepimage[0.26\textwidth]{3step_03_threshold.png}{}
+    \stepimage[0.30\textwidth]{image_1_step_03_threshold.png}{}
+    \stepimage[0.30\textwidth]{image_2_step_03_threshold.png}{}
+    \stepimage[0.26\textwidth]{image_3_step_03_threshold.png}{}
 \end{figure}
-Le seuillage est une technique fondamentale pour binariser une image, c'est-à-dire la convertir en une image en noir et blanc. Un seuillage global simple, qui utilise une seule valeur de seuil pour tous les pixels, est souvent inefficace sur des images avec des variations d'éclairage ou du bruit. Le seuillage adaptatif résout ce problème en calculant un seuil différent pour chaque pixel, en se basant sur une petite région environnante.
-
-Pour un pixel donné à la position \((x, y)\) dans l'image \(I\), le seuil \(T(x, y)\) est calculé en analysant l'intensité des pixels dans un voisinage de taille \texttt{block\_size} \(\times\) \texttt{block\_size}, centré sur \((x, y)\). On utilisera deux méthodes pour calculer ce seuil local.
+Le seuillage adaptatif binarise l'image en calculant un seuil local \(T(x, y)\) pour chaque pixel, basé sur un voisinage de taille \(\texttt{block\_size} \times \texttt{block\_size}\). Deux méthodes sont utilisées :
 
 \subsubsection{Méthode de la moyenne}
-Dans cette méthode, le seuil \(T(x, y)\) est simplement la moyenne des intensités des pixels dans le voisinage, à laquelle on soustrait une constante \(C\).
-
+Le seuil \(T(x, y)\) est la moyenne des intensités des pixels dans le voisinage \(W_{xy}\), moins une constante \(C\) :
 \[
 T(x, y) = \frac{1}{N} \sum_{(i, j) \in W_{xy}} I(i, j) - C
 \]
-
-Où :
-\begin{itemize}
-    \item \(W_{xy}\) est la fenêtre de voisinage de taille \texttt{block\_size} \(\times\) \texttt{block\_size} centrée en \((x, y)\).
-    \item \(N\) est le nombre total de pixels dans cette fenêtre (\(N = \texttt{block\_size}^2\)).
-    \item \(I(i, j)\) est l'intensité du pixel à la position \((i, j)\).
-\end{itemize}
+Où \(N = \texttt{block\_size}^2\) est le nombre de pixels dans la fenêtre et \(I(i, j)\) est l'intensité du pixel.
 
 \subsubsection{Méthode Gaussienne}
-Cette méthode est une version plus sophistiquée où le seuil est une somme pondérée des intensités des pixels du voisinage. Les pixels plus proches du centre de la fenêtre ont plus d'influence sur le calcul du seuil. Les poids sont déterminés par un noyau gaussien.
-
+Le seuil est une somme pondérée des intensités du voisinage \(W_{xy}\), où les poids \(w(i, j)\) sont dérivés d'un noyau gaussien et normalisés. Une constante \(C\) est soustraite :
 \[
 T(x, y) = \sum_{(i, j) \in W_{xy}} w(i, j) \cdot I(i, j) - C
 \]
 
-Où les poids \(w(i, j)\) sont dérivés d'un noyau gaussien et normalisés pour que leur somme soit égale à 1.
-
 \subsubsection{Application du seuil}
-Une fois le seuil \(T(x, y)\) calculé pour chaque pixel, l'image de sortie \(I_{\text{out}}\) est générée en appliquant l'une des deux règles suivantes :
+L'image de sortie \(I_{\text{out}}\) est générée en appliquant le seuil \(T(x, y)\) :
 \begin{itemize}
     \item \textbf{\texttt{THRESH\_BINARY}}:
     \[
@@ -185,73 +143,43 @@ Une fois le seuil \(T(x, y)\) calculé pour chaque pixel, l'image de sortie \(I_
 
 \subsection{Detection de la grille}
 \begin{figure}[!htb]
-    \stepimage[0.30\textwidth]{1step_05_grid_extraction.png}{}
-    \stepimage[0.33\textwidth]{2step_05_grid_extraction.png}{}
-    \stepimage[0.26\textwidth]{3step_05_grid_extraction.png}{}
+    \stepimage[0.30\textwidth]{image_1_step_05_grid_extraction.png}{}
+    \stepimage[0.30\textwidth]{image_2_step_05_grid_extraction.png}{}
+    \stepimage[0.26\textwidth]{image_3_step_05_grid_extraction.png}{}
 \end{figure}
 
-Une fois l'image binarisée, l'étape suivante consiste à localiser et à extraire la grille. Notre approche repose sur l'analyse des formes géométriques présentes dans l'image, en partant de l'hypothèse que la grille est l'objet le plus grand et le plus remarquable.
+Une fois l'image binarisée, l'étape suivante consiste à localiser et à extraire la grille. L'approche est basée sur l'hypothèse que la grille est le plus grand objet de l'image.
 
 \subsubsection{1. Recherche des contours}
-La première étape est d'identifier les contours de tous les objets dans l'image binarisée. Un contour est une séquence de pixels qui trace la frontière d'une forme. Pour ce faire, un algorithme de suivi de bordure (inspiré de l'algorithme de Suzuki) est utilisé. Son fonctionnement peut se résumer en plusieurs étapes clés :
-
-\begin{enumerate}
-    \item \textbf{Balayage de l'image :} L'algorithme parcourt l'image de gauche à droite et de haut en bas, à la recherche d'un pixel appartenant à un objet (un pixel blanc) qui n'a pas encore été assigné à un contour.
-
-    \item \textbf{Initialisation du suivi :} Lorsqu'un tel pixel est trouvé, il est marqué comme le point de départ d'un nouveau contour. L'algorithme commence alors à examiner ses 8 pixels voisins (voisinage de Moore) dans un ordre prédéfini (par exemple, dans le sens horaire) pour trouver le prochain pixel appartenant à la bordure.
-
-    \item \textbf{Suivi de la bordure :} Une fois le pixel suivant trouvé, l'algorithme s'y "déplace" et l'ajoute à la liste des points du contour. Depuis ce nouveau point, il répète le processus de recherche dans le voisinage pour trouver le pixel suivant, en s'assurant de suivre la frontière de l'objet. Ce processus est analogue à celui d'une personne qui suivrait un mur en gardant une main dessus.
-
-    \item \textbf{Condition d'arrêt :} Le suivi se poursuit jusqu'à ce que l'algorithme revienne à son point de départ initial. À ce moment, le contour est considéré comme complet et est ajouté à la liste des contours trouvés.
-
-    \item \textbf{Itération :} L'algorithme reprend ensuite son balayage initial de l'image pour trouver le point de départ d'un autre objet non encore traité. Le processus se répète jusqu'à ce que tous les pixels de l'image aient été visités.
-\end{enumerate}
-
-Le résultat final est une liste exhaustive de tous les contours présents dans l'image, chacun étant représenté par une liste de points qui définissent sa forme.
+Les contours de tous les objets sont identifiés avec un algorithme de suivi de bordure (inspiré de Suzuki). L'algorithme parcourt l'image à la recherche d'un pixel de départ d'un objet non encore traité. Une fois trouvé, il suit la frontière de l'objet en examinant les 8 pixels voisins (voisinage de Moore) jusqu'à revenir au point de départ. Ce processus est répété pour tous les objets, générant une liste de contours définis par des listes de points.
 
 \subsubsection{2. Identification du plus grand contour}
-Après avoir obtenu la liste de tous les contours, nous devons identifier celui qui correspond à la grille. L'heuristique utilisée est simple : la grille est supposée être le plus grand objet connexe de l'image. Par conséquent, nous calculons l'aire de chaque contour détecté et nous sélectionnons celui qui a la plus grande superficie.
+L'heuristique est que la grille est le plus grand objet. L'aire de chaque contour est calculée, et celui avec la plus grande superficie est sélectionné.
 
 \subsubsection{3. Calcul de la boîte englobante (Bounding Box)}
-Le contour identifié peut avoir une forme légèrement irrégulière. Pour faciliter l'extraction, nous calculons le plus petit rectangle droit (non incliné) qui englobe complètement ce contour. Ce rectangle, appelé "boîte englobante", nous fournit les coordonnées \((x, y)\) du coin supérieur gauche ainsi que la largeur et la hauteur de la grille.
+Un rectangle droit (non incliné) englobant le contour de la grille est calculé pour obtenir ses coordonnées \((x, y)\), sa largeur et sa hauteur, simplifiant ainsi l'extraction.
 
 \subsubsection{4. Extraction de la grille}
-Avec les coordonnées de la boîte englobante, nous pouvons maintenant "rogner" ou extraire la région de la grille de l'image d'origine (celle en niveaux de gris, avant le seuillage). Cela nous donne une nouvelle image ne contenant que la grille, prête pour une analyse plus approfondie.\\\\
-Cependant nous remarquons, notamment sur la dernière image, que la grille n'est pas parfaitement extraite. Nous appliquerons par la suite un deuxième algorithme de detection de la grille, qui nous permettra d'extraire la grille de manière plus précise.
+Avec la boîte englobante, la région de la grille est rognée de l'image en niveaux de gris. \newline\textcolor{orange}{\HandRight} \textit{Cette première extraction peut être imprécise et sera affinée par un second algorithme.}
 
 \subsection{Nettoyage morphologique de la grille}
 
 \begin{figure}[!htb]
-  \stepimage[0.30\textwidth]{1step_07_cleaned_grid.png}{}
-  \stepimage[0.33\textwidth]{2step_07_cleaned_grid.png}{}
-  \stepimage[0.26\textwidth]{3step_07_cleaned_grid.png}{}
+  \stepimage[0.30\textwidth]{image_1_step_07_cleaned_grid.png}{}
+  \stepimage[0.30\textwidth]{image_2_step_07_cleaned_grid.png}{}
+  \stepimage[0.26\textwidth]{image_3_step_07_cleaned_grid.png}{}
 \end{figure}
-L'image de la grille extraite à l'étape précédente n'est pas toujours parfaite. Elle peut contenir de petits trous ou des coupures dans les lignes, principalement à cause du bruit ou des lettres qui touchent les bords de la grille. Pour améliorer la qualité de la grille en vue de l'analyse des cellules, nous appliquons une opération de nettoyage appelée \texttt{fermeture morphologique} (\textit{Morphological Closing}).
+L'image de la grille extraite peut présenter des imperfections telles que des trous ou des coupures dans les lignes. Pour corriger cela, une opération de \texttt{fermeture morphologique} est appliquée. Elle combine deux processus pour nettoyer l'image :
 
-Cette opération combine deux étapes fondamentales :
-\begin{enumerate}
-    \item \textbf{La dilatation :}
-    Cette opération a pour effet d'épaissir ou d'agrandir les régions blanches de l'image. Son principal intérêt est de combler les petits trous à l'intérieur des objets et de reconnecter des parties d'un même objet qui auraient été séparées par du bruit.
+\begin{itemize}
+    \item \textbf{La dilatation :} Elle épaissit les lignes blanches pour combler les petits trous et reconnecter les segments brisés.
+    \newline\textbf{Au niveau du pixel :} Un pixel devient blanc si \textit{au moins un} de ses voisins (défini par un élément structurant 2x2) est blanc. Cela étend les zones blanches.
 
-    \paragraph{Au niveau du pixel :} L'opération fonctionne avec un "élément structurant", qui est une petite matrice (un noyau, ici de 2x2) que l'on fait glisser sur toute l'image. Pour chaque pixel de l'image de sortie, on effectue le test suivant :
-    \begin{itemize}
-        \item On centre l'élément structurant sur la position correspondante dans l'image d'origine.
-        \item Si \textbf{au moins un} des pixels de l'image d'origine couverts par l'élément structurant est blanc, alors le pixel de l'image de sortie devient blanc.
-    \end{itemize}
-    Le résultat est que les frontières des objets blancs s'étendent, les petits trous noirs se comblent, et les éléments proches peuvent fusionner.
+    \item \textbf{L'érosion :} Opération inverse, elle amincit les lignes pour restaurer leur épaisseur d'origine et éliminer le bruit.
+    \newline\textbf{Au niveau du pixel :} Un pixel ne devient blanc que si \textit{tous} ses voisins sont blancs. Cette règle plus stricte supprime les taches de bruit.
+\end{itemize}
 
-    \item \textbf{L'érosion :}
-    C'est l'opération inverse de la dilatation. Elle a pour effet d'amincir ou de rétrécir les régions blanches. Elle est principalement utilisée pour éliminer les petites taches de bruit blanc et pour séparer des objets qui ne sont que faiblement connectés.
-
-    \paragraph{Au niveau du pixel :} L'érosion utilise le même élément structurant, mais la règle est plus stricte :
-    \begin{itemize}
-        \item On centre l'élément structurant sur la position correspondante dans l'image d'origine.
-        \item Le pixel de l'image de sortie devient blanc \textbf{uniquement si tous} les pixels de l'image d'origine couverts par l'élément structurant sont blancs. Si un seul de ces pixels est noir, le pixel de sortie devient noir.
-    \end{itemize}
-    Le résultat est que les objets blancs rétrécissent, les fines connexions sont coupées et les petites taches de bruit blanc sont éliminées. Appliquée après la dilatation, elle permet de retrouver la taille initiale des lignes de la grille tout en gardant les bénéfices du nettoyage.
-\end{enumerate}
-
-L'effet net de la fermeture est de nettoyer la grille en supprimant le bruit "noir" (les petits trous) à l'intérieur des lignes blanches, sans altérer de manière significative la structure générale de la grille.
+L'effet net de la fermeture est de nettoyer la grille en éliminant les défauts dans les lignes blanches, tout en préservant la structure globale de la grille.
 
 \subsection{Analyse de la Structure de la Grille}
 
@@ -263,11 +191,11 @@ Cette analyse de la structure interne vient ainsi affiner et compléter l'extrac
 \begin{figure}[H]
   \centering
   \minipage{0.30\textwidth}
-      \includegraphics[width=\linewidth]{ressources/1step_09_horizontal_lines.png}
+      \includegraphics[width=\linewidth]{ressources/image_1_step_09_horizontal_lines.png}
       \caption{}
     \endminipage\quad\quad\quad\quad
     \minipage{0.30\textwidth}
-    \includegraphics[width=\linewidth]{ressources/3step_09_horizontal_lines.png}
+    \includegraphics[width=\linewidth]{ressources/image_2_step_09_horizontal_lines.png}
     \caption{}
   \endminipage
   \caption{Détection des lignes horizontales.}
@@ -277,11 +205,11 @@ Cette analyse de la structure interne vient ainsi affiner et compléter l'extrac
 \begin{figure}[H]
   \centering
   \minipage{0.30\textwidth}
-      \includegraphics[width=\linewidth]{ressources/1step_09_vertical_lines.png}
+      \includegraphics[width=\linewidth]{ressources/image_1_step_09_vertical_lines.png}
       \caption{}
     \endminipage\quad\quad\quad\quad
     \minipage{0.30\textwidth}
-    \includegraphics[width=\linewidth]{ressources/3step_09_vertical_lines.png}
+    \includegraphics[width=\linewidth]{ressources/image_2_step_09_vertical_lines.png}
     \caption{}
   \endminipage
   \caption{Détection des lignes verticales.}
@@ -306,8 +234,10 @@ Pour extraire les lignes, nous utilisons une opération spécialisée appelée \
     \end{enumerate}
 \end{itemize}
 
+\paragraph{2. Fusion et Extension des Lignes}
+Les lignes détectées par l'ouverture morphologique peuvent être fragmentées. Pour reconstruire des lignes complètes, un traitement supplémentaire est appliqué. Les segments de ligne qui sont colinéaires (sur le même axe) sont identifiés et fusionnés en un seul segment continu. Ensuite, ces segments fusionnés sont étendus sur toute la largeur (pour les lignes horizontales) ou toute la hauteur (pour les lignes verticales) de la grille. Cette étape garantit que la grille est entièrement délimitée, même si certaines parties des lignes étaient manquantes dans l'image nettoyée.
 
-\paragraph{2. Détermination des frontières}
+\paragraph{3. Détermination des frontières}
 Une fois les images des lignes obtenues, les frontières des cellules sont déterminées en analysant les projections de ces images. On scanne chaque ligne (pour les frontières horizontales) et chaque colonne (pour les frontières verticales) pour identifier les positions exactes des lignes détectées. Ces positions deviennent les délimitations des cellules.
 
 \subsubsection{Cas 2 : Grille sans lignes internes (Détection par Lettres)}
@@ -315,7 +245,7 @@ Une fois les images des lignes obtenues, les frontières des cellules sont déte
 \begin{figure}[H]
   \centering
   \minipage{0.30\textwidth}
-      \includegraphics[width=\linewidth]{ressources/3step_08_text_region.png}
+      \includegraphics[width=\linewidth]{ressources/image_3_step_08_text_region.png}
       \caption{}
     \endminipage\hfill
 \end{figure}
@@ -336,9 +266,9 @@ Connaissant les dimensions de la région de texte et le nombre de lignes et de c
 Quelle que soit la méthode utilisée, le résultat final est une série de coordonnées qui définissent les frontières de chaque cellule de la grille. Cela nous permet de "découper" chaque lettre individuellement pour la reconnaissance de caractères.
 
 \begin{figure}[H]
-    \stepimage[0.30\textwidth]{1step_10_reconstructed_grid.png}{}
-    \stepimage[0.33\textwidth]{2step_10_reconstructed_grid.png}{}
-    \stepimage[0.26\textwidth]{3step_10_reconstructed_grid.png}{}
+    \stepimage[0.30\textwidth]{image_1_step_10_reconstructed_grid.png}{}
+    \stepimage[0.30\textwidth]{image_2_step_10_reconstructed_grid.png}{}
+    \stepimage[0.26\textwidth]{image_3_step_10_reconstructed_grid.png}{}
     \caption{Grille segmentée avec les frontières des cellules détectées.}
 \end{figure}
 
@@ -350,61 +280,48 @@ L'étape finale consiste à extraire la liste des mots à rechercher à partir d
 Comme pour la grille, l'image est d'abord convertie en niveaux de gris et un léger flou gaussien est appliqué pour réduire le bruit et lisser les caractères.
 
 \paragraph{2. Binarisation par Combinaison}
-Le texte peut être difficile à segmenter à cause des variations d'éclairage, des ombres ou de la qualité de l'impression. Pour surmonter cela, au lieu d'une seule méthode de seuillage, nous en combinons trois pour maximiser nos chances de capturer tout le texte :
+Le texte peut être difficile à segmenter à cause des variations d'éclairage, des ombres ou de la qualité de l'impression. Pour surmonter cela, au lieu d'une seule méthode de seuillage, nous en combinons deux pour maximiser nos chances de capturer tout le texte :
 
   \begin{itemize}
-    \item \textbf{Méthode d'Otsu :} C'est un algorithme de seuillage global automatique. Plutôt que d'utiliser une valeur fixe, l'algorithme d'Otsu analyse l'histogramme des intensités de tous les pixels de l'image. Il parcourt tous les seuils possibles (de 0 à 255) et, pour chaque seuil, il calcule la variance des pixels des deux classes qu'il créerait (premier-plan et arrière-plan). Le seuil optimal est celui qui \textbf{minimise la variance intra-classe} (ou, de manière équivalente, maximise la variance inter-classe). Il est très efficace pour les images bimodales (comme du texte noir sur un fond clair).
+    \item \textbf{Méthode d'Otsu :} La méthode d'Otsu est un algorithme de seuillage automatique qui analyse l'histogramme des intensités de l'image pour trouver le seuil optimal. Ce seuil est la valeur qui maximise la variance entre les deux classes de pixels (premier-plan et arrière-plan) qu'elle sépare. Elle est particulièrement efficace pour les images à contraste élevé, comme du texte noir sur fond blanc.
     \begin{figure}[H]
       \centering
       \minipage{0.29\textwidth}
-          \includegraphics[width=\linewidth]{ressources/1level_1_image_1_03_otsu_threshold.png}
+          \includegraphics[width=\linewidth]{ressources/image_2_word_detection_03_otsu_threshold.png}
           \caption{}
         \endminipage\quad\quad\quad\quad
         \minipage{0.25\textwidth}
-        \includegraphics[width=\linewidth]{ressources/3level_3_image_2_03_otsu_threshold.png}
+        \includegraphics[width=\linewidth]{ressources/image_3_word_detection_03_otsu_threshold.png}
         \caption{}
       \endminipage
       \caption{Seuillage par Otsu.}
     \end{figure}
 
-    \item \textbf{Seuillage Adaptatif Gaussien :} Comme vu précédemment, cette méthode calcule un seuil local pour chaque pixel en se basant sur une moyenne pondérée gaussienne de son voisinage. Elle excelle dans la gestion des gradients d'éclairage.
-    \begin{figure}[H]
-      \centering
-      \minipage{0.29\textwidth}
-          \includegraphics[width=\linewidth]{ressources/1level_1_image_1_04_adaptive_threshold.png}
-          \caption{}
-        \endminipage\quad\quad\quad\quad
-        \minipage{0.25\textwidth}
-        \includegraphics[width=\linewidth]{ressources/3level_3_image_2_04_adaptive_threshold.png}
-        \caption{}
-      \endminipage
-      \caption{Seuillage adaptatif.}
-    \end{figure}
     \item \textbf{Seuillage par la Moyenne :} Une version plus simple du seuillage global, où le seuil est calculé comme un pourcentage (par exemple, 80\%) de l'intensité moyenne de tous les pixels de l'image.
     \begin{figure}[H]
       \centering
       \minipage{0.29\textwidth}
-          \includegraphics[width=\linewidth]{ressources/1level_1_image_1_05_mean_threshold.png}
+          \includegraphics[width=\linewidth]{ressources/image_2_word_detection_05_mean_threshold.png}
           \caption{}
         \endminipage\quad\quad\quad\quad
         \minipage{0.25\textwidth}
-        \includegraphics[width=\linewidth]{ressources/3level_3_image_2_05_mean_threshold.png}
+        \includegraphics[width=\linewidth]{ressources/image_3_word_detection_05_mean_threshold.png}
         \caption{}
       \endminipage
-      \caption{Seuillage adaptatif.}
+      \caption{Seuillage par la moyenne.}
     \end{figure}
 \end{itemize}
 
 \paragraph{3. Fusion des Résultats}
-Les trois images binaires résultantes sont ensuite fusionnées en une seule image en utilisant une opération \texttt{OU} logique pixel à pixel. Un pixel est considéré comme faisant partie du texte dans l'image finale s'il a été classé comme tel par \textit{au moins une} des trois méthodes..
+Les deux images binaires résultantes sont ensuite fusionnées en une seule image en utilisant une opération \texttt{OU} logique pixel à pixel. Un pixel est considéré comme faisant partie du texte dans l'image finale s'il a été classé comme tel par \textit{au moins une} des deux méthodes.
 \begin{figure}[H]
   \centering
   \minipage{0.29\textwidth}
-      \includegraphics[width=\linewidth]{ressources/1level_1_image_1_06_combined_threshold.png}
+      \includegraphics[width=\linewidth]{ressources/image_2_word_detection_06_combined_threshold.png}
       \caption{}
     \endminipage\quad\quad\quad\quad
     \minipage{0.25\textwidth}
-    \includegraphics[width=\linewidth]{ressources/3level_3_image_2_06_combined_threshold.png}
+    \includegraphics[width=\linewidth]{ressources/image_3_word_detection_06_combined_threshold.png}
     \caption{}
   \endminipage
   \caption{Fusion des résultats.}
@@ -415,11 +332,11 @@ Une fois l'image binarisée, des opérations morphologiques sont appliquées pou
 \begin{figure}[H]
   \centering
   \minipage{0.29\textwidth}
-      \includegraphics[width=\linewidth]{ressources/1level_1_image_1_07_morphology_closed.png}
+      \includegraphics[width=\linewidth]{ressources/image_2_word_detection_07_morphology_closed.png}
       \caption{}
     \endminipage\quad\quad\quad\quad
     \minipage{0.25\textwidth}
-    \includegraphics[width=\linewidth]{ressources/3level_3_image_2_07_morphology_closed.png}
+    \includegraphics[width=\linewidth]{ressources/image_3_word_detection_07_morphology_closed.png}
     \caption{}
   \endminipage
   \caption{Fermeture morphologique.}
@@ -427,11 +344,11 @@ Une fois l'image binarisée, des opérations morphologiques sont appliquées pou
 \begin{figure}[H]
   \centering
   \minipage{0.29\textwidth}
-      \includegraphics[width=\linewidth]{ressources/1level_1_image_1_08_dilated.png}
+      \includegraphics[width=\linewidth]{ressources/image_2_word_detection_08_dilated.png}
       \caption{}
     \endminipage\quad\quad\quad\quad
     \minipage{0.25\textwidth}
-    \includegraphics[width=\linewidth]{ressources/3level_3_image_2_08_dilated.png}
+    \includegraphics[width=\linewidth]{ressources/image_3_word_detection_08_dilated.png}
     \caption{}
   \endminipage
   \caption{Dilatation.}
@@ -439,45 +356,29 @@ Une fois l'image binarisée, des opérations morphologiques sont appliquées pou
 \begin{figure}[H]
   \centering
   \minipage{0.29\textwidth}
-      \includegraphics[width=\linewidth]{ressources/1level_1_image_1_09_eroded.png}
+      \includegraphics[width=\linewidth]{ressources/image_2_word_detection_09_eroded.png}
       \caption{}
     \endminipage\quad\quad\quad\quad
     \minipage{0.25\textwidth}
-    \includegraphics[width=\linewidth]{ressources/3level_3_image_2_09_eroded.png}
+    \includegraphics[width=\linewidth]{ressources/image_3_word_detection_09_eroded.png}
     \caption{}
   \endminipage
   \caption{Érosion.}
 \end{figure}
 \paragraph{1. Détection et Filtrage :} Comme précédemment, les contours de tous les "blobs" sont détectés, et ceux qui ne correspondent pas à des critères géométriques de mots (taille, ratio, etc.) sont éliminés.
 
-\paragraph{2. Algorithme de Fusion Horizontale :} Pour regrouper les fragments de mots, un algorithme de fusion est appliqué :
-\begin{enumerate}
-    \item Les boîtes englobantes de tous les contours restants sont triées par leur coordonnée X.
-    \item L'algorithme parcourt la liste triée, en maintenant une "boîte courante". Pour chaque boîte suivante, il calcule l'écart horizontal et le chevauchement vertical avec la boîte courante.
-    \item Si l'écart est faible ET que le chevauchement est important (ce qui signifie que les deux boîtes sont proches et sur la même ligne), elles sont fusionnées en une seule boîte plus grande qui devient la nouvelle "boîte courante".
-    \item Sinon, la "boîte courante" est finalisée et ajoutée à la liste des mots, et la boîte suivante devient la nouvelle "boîte courante".
-    \item Ce processus garantit que seules les boîtes adjacentes et bien alignées sont fusionnées pour former des mots complets.
-\end{enumerate}
+\paragraph{2. Fusion Horizontale des Mots :} Pour regrouper les fragments de mots, un algorithme de fusion est appliqué. Après avoir trié les boîtes englobantes des contours par leur coordonnée X, l'algorithme les parcourt. Si une boîte est suffisamment proche horizontalement et alignée verticalement avec la précédente, elles sont fusionnées. Sinon, la boîte précédente est considérée comme un mot complet. Ce processus garantit que seuls les fragments de mots adjacents et colinéaires sont assemblés.
 
-\paragraph{3. Regroupement en Lignes et Sélection du Bloc Principal}
-Enfin, les boîtes des mots fusionnés sont regroupées pour identifier la liste de mots principale.
-\begin{enumerate}
-    \item \textbf{Regroupement en lignes :} D'abord, un algorithme de clustering (similaire à celui vu pour la grille) est utilisé pour regrouper les mots en lignes, en se basant sur l'alignement vertical de leurs centres.
+\paragraph{3. Identification de la Liste de Mots :} Pour identifier la liste de mots principale, les mots sont d'abord regroupés en lignes par clustering vertical de leurs centres. Ensuite, l'algorithme analyse l'espacement vertical entre les lignes pour identifier l'interligne le plus courant. En se basant sur cet interligne, il regroupe les lignes en blocs. Finalement, le bloc contenant le plus grand nombre de mots est sélectionné comme étant la liste de mots à rechercher. Le résultat est un ensemble final de boîtes englobantes, chacune correspondant à un mot à trouver.
 
-    \item \textbf{Analyse de l'espacement vertical :} L'algorithme calcule ensuite l'écart vertical moyen entre chaque ligne consécutive. Il identifie l'espacement le plus fréquent, qui correspond à l'interligne standard du bloc de texte principal.
-
-    \item \textbf{Regroupement en blocs :} En se basant sur cet interligne standard, l'algorithme regroupe les lignes consécutives en blocs. Une rupture (un écart vertical beaucoup plus grand que la norme) signale la fin d'un bloc et le début d'un autre.
-
-    \item \textbf{Sélection finale :} L'algorithme part du principe que la liste de mots à rechercher est le bloc de texte le plus dense. Il sélectionne donc le bloc qui contient le plus grand nombre de mots. Le résultat est un ensemble final de boîtes englobantes, chacune correspondant à un mot à trouver.
-\end{enumerate}
 \begin{figure}[H]
   \centering
   \minipage{0.29\textwidth}
-      \includegraphics[width=\linewidth]{ressources/words_with_squares_level_1_image_1.png}
+      \includegraphics[width=\linewidth]{ressources/image_2_word_detection_10_detected_words.png}
       \caption{}
     \endminipage\quad\quad\quad\quad
     \minipage{0.25\textwidth}
-    \includegraphics[width=\linewidth]{ressources/words_with_squares_level_3_image_2.png}
+    \includegraphics[width=\linewidth]{ressources/image_3_word_detection_10_detected_words.png}
     \caption{}
   \endminipage
   \caption{Détection des mots.}

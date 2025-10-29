@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 double sigmoid(double x) { return 1.0 / (1.0 + exp(-x)); }
 
@@ -33,12 +34,14 @@ int main()
     b2 = random_nb_gen();
 
     double lr = 0.5;
-    int epochs = 10000;
+    int epochs = 100000;
 
     double h[4][2];
     double o[4];
     double delta_o[4];
     double delta_h[4][2];
+
+    clock_t start_time = clock();
 
     for (int epoch = 0; epoch < epochs; ++epoch)
     {
@@ -95,6 +98,10 @@ int main()
         b1[0] += db1_0 * lr;
         b1[1] += db1_1 * lr;
     }
+
+    clock_t end_time = clock();
+    double execution_time = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
+    printf("Execution time: %.6f ms\n", execution_time * 1000);
 
     for (int s = 0; s < 4; ++s)
     {
