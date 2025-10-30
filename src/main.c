@@ -1,14 +1,43 @@
 #include "../include/gui/gui.h"
 #include "../include/wordsearch/processor.h"
 #include <stddef.h>
+#include <string.h>
+#include <stdlib.h>
+#include "../include/image/operations.h"
+#include "../include/image/image.h"
+
+Image image;
 
 int main(int argc, char *argv[])
 {
-    if (argc == 2)
+    if (argc >= 3)
     {
-        // CLI mode: process image without GUI
-        char *image_path = argv[1];
-        return process_wordsearch_image(image_path, NULL);
+        if(strcmp(argv[1], "-r") == 0)
+        {
+            char *image_path = argv[2];
+            double angle = atof(argv[3]);
+            load_image(image_path, &image);
+            rotate_image(&image, angle);
+            // Create output path with "rotated" in the name
+            char output_path[256];
+            char *dot_pos = strrchr(image_path, '.');
+            if (dot_pos != NULL) {
+                size_t base_len = dot_pos - image_path;
+                strncpy(output_path, image_path, base_len);
+                output_path[base_len] = '\0';
+                strcat(output_path, "_rotated");
+                strcat(output_path, dot_pos);
+            } else {
+                strcpy(output_path, image_path);
+                strcat(output_path, "_rotated");
+            }
+            save_image(output_path, &image);
+        }
+        else
+        {
+            char *image_path = argv[1];
+            return process_wordsearch_image(image_path, NULL);
+        }
     }
     else
     {

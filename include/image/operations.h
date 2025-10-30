@@ -141,3 +141,10 @@ double estimate_noise_level(Image *image);
     !Warning: Only works on grayscale images. Modifies the image in place.
 */
 void invert(Image *image);
+
+/*
+    Rotate an RGB image by a given angle in degrees.
+    Creates a square output filled with white background.
+    !Warning: Only works with RGB images. Modifies the image in place. The image becomes square.
+*/
+void rotate_image(Image *image, double angle);
