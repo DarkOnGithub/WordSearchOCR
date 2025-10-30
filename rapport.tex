@@ -12,6 +12,8 @@
 \usepackage{subcaption}
 \usepackage{float}
 \usepackage{verbatim}
+\usepackage{setspace}
+\usepackage{titling}
 \newcommand\Tstrut{\rule{0pt}{2.6ex}}
 \newcommand\Bstrut{\rule[-0.9ex]{0pt}{0pt}}
 \newcommand{\TBstrut}{\Tstrut\Bstrut}
@@ -22,27 +24,20 @@
     \caption{#3}
   \endminipage\hfill
 }
-\title{
+
+\title{\vspace{-3.0cm}
 \rule{0.65\linewidth}{3pt}\\[0.7em]  % Upper line, 2pt thick
 OCR Word Search Solver\\[0.5em]
 \rule{0.65\linewidth}{1pt}           % Lower line, 1pt thick
 }
 
-\author{\small
-  \textbf{Alexandre Joaquim Lima Salgueiro}\\
-  \texttt{alexandre-joaquim.lima-salgueiro}
-  \and
-  \small
-  \textbf{Hugo Guyennet}\\
-  \texttt{hugo.guyennet}
-  \and
-  \small
-  \textbf{Léa-Angélina Kolmerschlag}\\
-  \texttt{lea-angelina.kolmerschlag}
-  \and
-  \small
-  \textbf{Tom Huynh}\\
-  \texttt{tom.huynh}
+\author{
+    \begin{tabular}{cc}
+        \small\textbf{Alexandre Joaquim Lima Salgueiro} & \small\textbf{Hugo Guyennet} \\
+        \small\texttt{alexandre-joaquim.lima-salgueiro} & \small\texttt{hugo.guyennet} \\[2ex]
+        \small\textbf{Léa-Angélina Kolmerschlag} & \small\textbf{Tom Huynh} \\
+        \small\texttt{lea-angelina.kolmerschlag} & \small\texttt{tom.huynh}
+    \end{tabular}
 }
 
 
@@ -51,7 +46,10 @@ OCR Word Search Solver\\[0.5em]
 \begin{document}
 
 \maketitle
+
+\begin{spacing}{0.9}
 \tableofcontents
+\end{spacing}
 
 
 
@@ -140,6 +138,8 @@ Nous prendrons comme exemples ces 3 images :
 \subsection{Chargement des images}
 
 Le chargement des images est réalisé à l'aide de GTK, qui gère le chargement et la manipulation des fichiers image.
+
+La rotation est effectuée à l'aide de la bibliothèque graphique \texttt{cairo}, qui offre des transformations 2D de haute qualité.
 
 \subsection{Extraction de la grille}
 
