@@ -1465,13 +1465,12 @@ void rotate_image(Image *image, double angle)
     int rotated_width = (int)ceil(original_width * cos_angle + original_height * sin_angle);
     int rotated_height = (int)ceil(original_width * sin_angle + original_height * cos_angle);
 
-    int square_size = rotated_width > rotated_height ? rotated_width : rotated_height;
-    if (original_width > square_size) square_size = original_width;
-    if (original_height > square_size) square_size = original_height;
+    int new_width = rotated_width - 1;
+    int new_height = rotated_height - 1;
 
-    if (square_size <= 0)
+    if (new_width <= 0 || new_height <= 0)
     {
-        fprintf(stderr, "Error: Invalid square dimension after rotation (%d)\n", square_size);
+        fprintf(stderr, "Error: Invalid dimensions after rotation (%dx%d)\n", new_width, new_height);
         return;
     }
 
@@ -1513,7 +1512,7 @@ void rotate_image(Image *image, double angle)
         return;
     }
 
-    target_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, square_size, square_size);
+    target_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, new_width, new_height);
     if (!target_surface || cairo_surface_status(target_surface) != CAIRO_STATUS_SUCCESS)
     {
         fprintf(stderr, "Error: Failed to create Cairo target surface\n");
@@ -1533,7 +1532,7 @@ void rotate_image(Image *image, double angle)
     cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
     cairo_paint(cr);
 
-    cairo_translate(cr, square_size / 2.0, square_size / 2.0);
+    cairo_translate(cr, new_width / 2.0, new_height / 2.0);
     cairo_rotate(cr, radians);
     cairo_translate(cr, -original_width / 2.0, -original_height / 2.0);
 
@@ -1550,7 +1549,7 @@ void rotate_image(Image *image, double angle)
     unsigned char *target_data = cairo_image_surface_get_data(target_surface);
     int target_stride = cairo_image_surface_get_stride(target_surface);
 
-    uint32_t *new_rgba_pixels = (uint32_t *)malloc(square_size * square_size * sizeof(uint32_t));
+    uint32_t *new_rgba_pixels = (uint32_t *)malloc(new_width * new_height * sizeof(uint32_t));
     if (!new_rgba_pixels)
     {
         fprintf(stderr, "Error: Failed to allocate new RGBA buffer\n");
@@ -1558,11 +1557,11 @@ void rotate_image(Image *image, double angle)
         return;
     }
 
-    for (int y = 0; y < square_size; y++)
+    for (int y = 0; y < new_height; y++)
     {
-        for (int x = 0; x < square_size; x++)
+        for (int x = 0; x < new_width; x++)
         {
-            int idx = y * square_size + x;
+            int idx = y * new_width + x;
             uint32_t *pixel_ptr = (uint32_t *)(target_data + y * target_stride + x * 4);
             uint32_t argb = *pixel_ptr;
 
@@ -1581,11 +1580,11 @@ void rotate_image(Image *image, double angle)
     image->rgba_pixels = new_rgba_pixels;
     image->gray_pixels = NULL;
     image->is_grayscale = false;
-    image->width = square_size;
-    image->height = square_size;
+    image->width = new_width;
+    image->height = new_height;
 
     cairo_surface_destroy(target_surface);
 
-    printf("Rotated image by %.2f degrees (%dx%d -> %dx%d, filled with white)\n",
-           angle, original_width, original_height, square_size, square_size);
+    printf("Rotated image by %.2f degrees (%dx%d -> %dx%d, minimal white padding)\n",
+           angle, original_width, original_height, new_width, new_height);
 }

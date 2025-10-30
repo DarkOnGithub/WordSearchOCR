@@ -240,6 +240,8 @@ static void show_file_chooser(void)
                                          action, "_Cancel", GTK_RESPONSE_CANCEL,
                                          "_Open", GTK_RESPONSE_ACCEPT, NULL);
 
+    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), "images");
+
     GtkFileFilter *filter = gtk_file_filter_new();
     gtk_file_filter_set_name(filter, "Image files");
     gtk_file_filter_add_mime_type(filter, "image/jpeg");
