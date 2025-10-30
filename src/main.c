@@ -14,11 +14,15 @@ int main(int argc, char *argv[])
     {
         if(strcmp(argv[1], "-r") == 0)
         {
+            if(argc != 4)
+            {
+                printf("Usage: %s -r <image_path> <angle>\n", argv[0]);
+                return 1;
+            }
             char *image_path = argv[2];
             double angle = atof(argv[3]);
             load_image(image_path, &image);
             rotate_image(&image, angle);
-            // Create output path with "rotated" in the name
             char output_path[256];
             char *dot_pos = strrchr(image_path, '.');
             if (dot_pos != NULL) {
