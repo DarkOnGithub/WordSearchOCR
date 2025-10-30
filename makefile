@@ -14,6 +14,9 @@ DEPS = $(MAIN_OBJECTS:.o=.d)
 
 NN_TARGET = $(BUILD_DIR)/nn/XNOR
 SOLVER_TARGET = $(BUILD_DIR)/solver/solver
+BLAS_TEST_TARGET = $(BUILD_DIR)/tests/blas_test
+SOLVER_TEST_TARGET = $(BUILD_DIR)/tests/solver_test
+NN_TEST_TARGET = $(BUILD_DIR)/tests/nn_test
 
 GTK3_AVAILABLE := $(shell pkg-config --exists gtk+-3.0 2>/dev/null && echo "yes" || echo "no")
 
@@ -23,6 +26,31 @@ ifeq ($(GTK3_AVAILABLE),yes)
 else
     GTK_CFLAGS =
     GTK_LIBS =
+endif
+
+# Detect BLAS libraries
+# Check for Nix environment first - use NIX_LDFLAGS if set
+# Otherwise, try to detect available BLAS libraries
+ifdef NIX_LDFLAGS
+    # Using Nix environment - use provided library paths
+    BLAS_LIBS = -L$(NIX_LDFLAGS) -lopenblas
+else
+    # Try to find Nix OpenBLAS
+    NIX_BLAS_PATH := $(shell find /nix/store -name "libopenblas.so" 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "")
+    ifneq ($(NIX_BLAS_PATH),)
+        BLAS_LIBS = -L$(NIX_BLAS_PATH) -lopenblas
+    else
+        # Try pkg-config
+        BLAS_AVAILABLE := $(shell pkg-config --exists cblas 2>/dev/null && echo "yes" || echo "no")
+        ifeq ($(BLAS_AVAILABLE),yes)
+            BLAS_LIBS = $(shell pkg-config --libs cblas)
+        else
+            # Try system libraries
+            # OpenBLAS includes both BLAS and CBLAS, so just -lopenblas should work
+            # If that fails, try -lblas alone (some systems bundle CBLAS)
+            BLAS_LIBS = -lopenblas
+        endif
+    endif
 endif
 
 all: dirs $(TARGET)
@@ -49,6 +77,7 @@ dirs:
 	@mkdir -p $(BUILD_DIR)/gui
 	@mkdir -p $(BUILD_DIR)/nn
 	@mkdir -p $(BUILD_DIR)/solver
+	@mkdir -p $(BUILD_DIR)/tests
 
 $(TARGET): $(MAIN_OBJECTS)
 	@echo "Linking $@..."
@@ -65,10 +94,38 @@ $(SOLVER_TARGET): $(BUILD_DIR)/solver/main.o $(BUILD_DIR)/solver/solver.o $(BUIL
 	$(CC) $(BUILD_DIR)/solver/main.o $(BUILD_DIR)/solver/solver.o $(BUILD_DIR)/solver/search.o -o $@ $(LDFLAGS)
 	@echo "Solver build successful! Binary: $@"
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
-	@echo "Compiling $<..."
+$(BLAS_TEST_TARGET): dirs $(BUILD_DIR)/tests/blas_test.o
+	@echo "Linking BLAS test $@..."
+	@echo "Using BLAS libraries: $(BLAS_LIBS)"
+	$(CC) $(BUILD_DIR)/tests/blas_test.o -o $@ $(LDFLAGS) $(BLAS_LIBS)
+	@echo "BLAS test build successful! Binary: $@"
+
+test-blas: $(BLAS_TEST_TARGET)
+	@echo "Running BLAS tests..."
+	@$(BLAS_TEST_TARGET)
+
+$(SOLVER_TEST_TARGET): dirs $(BUILD_DIR)/tests/solver_test.o $(BUILD_DIR)/solver/solver.o $(BUILD_DIR)/solver/search.o
+	@echo "Linking solver test $@..."
+	$(CC) $(BUILD_DIR)/tests/solver_test.o $(BUILD_DIR)/solver/solver.o $(BUILD_DIR)/solver/search.o -o $@ $(LDFLAGS)
+	@echo "Solver test build successful! Binary: $@"
+
+test-solver: $(SOLVER_TEST_TARGET)
+	@echo "Running solver tests..."
+	@$(SOLVER_TEST_TARGET)
+
+$(NN_TEST_TARGET): dirs $(BUILD_DIR)/tests/nn_test.o
+	@echo "Linking neural network test $@..."
+	$(CC) $(BUILD_DIR)/tests/nn_test.o -o $@ $(LDFLAGS)
+	@echo "Neural network test build successful! Binary: $@"
+
+test-nn: $(NN_TEST_TARGET)
+	@echo "Running neural network tests..."
+	@$(NN_TEST_TARGET)
+
+$(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.c
+	@echo "Compiling test $<..."
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(GTK_CFLAGS) -MMD -MP -c $< -o $@
+	$(CC) $(CFLAGS) -Isrc -MMD -MP -c $< -o $@
 
 -include $(DEPS)
 
@@ -108,6 +165,9 @@ help:
 	@echo "  all           - Build the project (default)"
 	@echo "  nn            - Build the XNOR neural network example"
 	@echo "  solver        - Build the word search solver"
+	@echo "  test-blas      - Build and run BLAS tests"
+	@echo "  test-solver    - Build and run solver unit tests"
+	@echo "  test-nn        - Build and run neural network tests"
 	@echo "  clean         - Remove all build artifacts"
 	@echo "  release       - Build optimized release"
 	@echo "  install-deps  - Install GTK3 dependencies"
@@ -117,4 +177,4 @@ help:
 	@echo "Build directory: $(BUILD_DIR)"
 	@echo "Source directory: $(SRC_DIR)"
 
-.PHONY: all nn solver clean release install-deps check-deps dirs info help
+.PHONY: all nn solver test-blas test-solver test-nn clean release install-deps check-deps dirs info help
