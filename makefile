@@ -70,6 +70,7 @@ check-deps:
 
 dirs:
 	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/analysis
 	@mkdir -p $(BUILD_DIR)/image
 	@mkdir -p $(BUILD_DIR)/detection
 	@mkdir -p $(BUILD_DIR)/preprocessing
@@ -122,10 +123,10 @@ test-nn: $(NN_TEST_TARGET)
 	@echo "Running neural network tests..."
 	@$(NN_TEST_TARGET)
 
-$(BUILD_DIR)/tests/%.o: $(SRC_DIR)/tests/%.c
-	@echo "Compiling test $<..."
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+	@echo "Compiling $<..."
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Isrc -MMD -MP -c $< -o $@
+	$(CC) $(CFLAGS) $(GTK_CFLAGS) -MMD -MP -c $< -o $@
 
 -include $(DEPS)
 

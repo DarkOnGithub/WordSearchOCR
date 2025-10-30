@@ -1,16 +1,16 @@
 #include "../include/gui/gui.h"
 #include "../include/wordsearch/processor.h"
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include "../include/image/operations.h"
 #include "../include/image/image.h"
 
-Image image;
 
 int main(int argc, char *argv[])
 {
-    if (argc >= 3)
+    if (argc >= 2)
     {
         if(strcmp(argv[1], "-r") == 0)
         {
@@ -21,6 +21,7 @@ int main(int argc, char *argv[])
             }
             char *image_path = argv[2];
             double angle = atof(argv[3]);
+            Image image;
             load_image(image_path, &image);
             rotate_image(&image, angle);
             char output_path[256];
@@ -36,11 +37,15 @@ int main(int argc, char *argv[])
                 strcat(output_path, "_rotated");
             }
             save_image(output_path, &image);
+            free_image(&image);
+            return 0;
         }
         else
         {
             char *image_path = argv[1];
-            return process_wordsearch_image(image_path, NULL);
+            process_wordsearch_image(image_path, NULL);
+            process_word_detection(image_path, NULL);
+            return 0;
         }
     }
     else
