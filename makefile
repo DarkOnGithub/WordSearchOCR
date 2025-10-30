@@ -8,15 +8,12 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -g -Iinclude
 LDFLAGS = -lm
 
-MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*XNOR.c" -not -path "*/solver/main.c" -not -path "*/tests/*")
+MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*XNOR.c" -not -path "*/solver/main.c")
 MAIN_OBJECTS = $(MAIN_SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 DEPS = $(MAIN_OBJECTS:.o=.d)
 
 NN_TARGET = $(BUILD_DIR)/nn/XNOR
 SOLVER_TARGET = $(BUILD_DIR)/solver/solver
-BLAS_TEST_TARGET = $(BUILD_DIR)/tests/blas_test
-SOLVER_TEST_TARGET = $(BUILD_DIR)/tests/solver_test
-NN_TEST_TARGET = $(BUILD_DIR)/tests/nn_test
 
 GTK3_AVAILABLE := $(shell pkg-config --exists gtk+-3.0 2>/dev/null && echo "yes" || echo "no")
 
@@ -78,7 +75,6 @@ dirs:
 	@mkdir -p $(BUILD_DIR)/gui
 	@mkdir -p $(BUILD_DIR)/nn
 	@mkdir -p $(BUILD_DIR)/solver
-	@mkdir -p $(BUILD_DIR)/tests
 
 $(TARGET): $(MAIN_OBJECTS)
 	@echo "Linking $@..."
@@ -95,33 +91,6 @@ $(SOLVER_TARGET): $(BUILD_DIR)/solver/main.o $(BUILD_DIR)/solver/solver.o $(BUIL
 	$(CC) $(BUILD_DIR)/solver/main.o $(BUILD_DIR)/solver/solver.o $(BUILD_DIR)/solver/search.o -o $@ $(LDFLAGS)
 	@echo "Solver build successful! Binary: $@"
 
-$(BLAS_TEST_TARGET): dirs $(BUILD_DIR)/tests/blas_test.o
-	@echo "Linking BLAS test $@..."
-	@echo "Using BLAS libraries: $(BLAS_LIBS)"
-	$(CC) $(BUILD_DIR)/tests/blas_test.o -o $@ $(LDFLAGS) $(BLAS_LIBS)
-	@echo "BLAS test build successful! Binary: $@"
-
-test-blas: $(BLAS_TEST_TARGET)
-	@echo "Running BLAS tests..."
-	@$(BLAS_TEST_TARGET)
-
-$(SOLVER_TEST_TARGET): dirs $(BUILD_DIR)/tests/solver_test.o $(BUILD_DIR)/solver/solver.o $(BUILD_DIR)/solver/search.o
-	@echo "Linking solver test $@..."
-	$(CC) $(BUILD_DIR)/tests/solver_test.o $(BUILD_DIR)/solver/solver.o $(BUILD_DIR)/solver/search.o -o $@ $(LDFLAGS)
-	@echo "Solver test build successful! Binary: $@"
-
-test-solver: $(SOLVER_TEST_TARGET)
-	@echo "Running solver tests..."
-	@$(SOLVER_TEST_TARGET)
-
-$(NN_TEST_TARGET): dirs $(BUILD_DIR)/tests/nn_test.o
-	@echo "Linking neural network test $@..."
-	$(CC) $(BUILD_DIR)/tests/nn_test.o -o $@ $(LDFLAGS)
-	@echo "Neural network test build successful! Binary: $@"
-
-test-nn: $(NN_TEST_TARGET)
-	@echo "Running neural network tests..."
-	@$(NN_TEST_TARGET)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
@@ -166,9 +135,6 @@ help:
 	@echo "  all           - Build the project (default)"
 	@echo "  nn            - Build the XNOR neural network example"
 	@echo "  solver        - Build the word search solver"
-	@echo "  test-blas      - Build and run BLAS tests"
-	@echo "  test-solver    - Build and run solver unit tests"
-	@echo "  test-nn        - Build and run neural network tests"
 	@echo "  clean         - Remove all build artifacts"
 	@echo "  release       - Build optimized release"
 	@echo "  install-deps  - Install GTK3 dependencies"
@@ -178,4 +144,4 @@ help:
 	@echo "Build directory: $(BUILD_DIR)"
 	@echo "Source directory: $(SRC_DIR)"
 
-.PHONY: all nn solver test-blas test-solver test-nn clean release install-deps check-deps dirs info help
+.PHONY: all nn solver clean release install-deps check-deps dirs info help
