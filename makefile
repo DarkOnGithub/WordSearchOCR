@@ -14,6 +14,7 @@ DEPS = $(MAIN_OBJECTS:.o=.d)
 
 NN_TARGET = $(BUILD_DIR)/nn/XNOR
 SOLVER_TARGET = $(BUILD_DIR)/solver/solver
+TEST_TARGET = $(BUILD_DIR)/test/test
 
 GTK3_AVAILABLE := $(shell pkg-config --exists gtk+-3.0 2>/dev/null && echo "yes" || echo "no")
 CBLAS_AVAILABLE := $(shell pkg-config --exists cblas 2>/dev/null && echo "yes" || echo "no")
@@ -41,6 +42,12 @@ nn: dirs $(NN_TARGET)
 
 solver: dirs $(SOLVER_TARGET)
 
+test: dirs $(TEST_TARGET)
+
+run-test: test
+	@echo "Running tensor tests..."
+	@./$(TEST_TARGET)
+
 check-deps:
 	@if [ "$(GTK3_AVAILABLE)" != "yes" ]; then \
 		echo "Error: Missing required dependencies."; \
@@ -60,6 +67,7 @@ dirs:
 	@mkdir -p $(BUILD_DIR)/gui
 	@mkdir -p $(BUILD_DIR)/nn
 	@mkdir -p $(BUILD_DIR)/solver
+	@mkdir -p $(BUILD_DIR)/test
 
 $(TARGET): $(MAIN_OBJECTS)
 	@echo "Linking $@..."
@@ -76,11 +84,21 @@ $(SOLVER_TARGET): $(BUILD_DIR)/solver/main.o $(BUILD_DIR)/solver/solver.o $(BUIL
 	$(CC) $(BUILD_DIR)/solver/main.o $(BUILD_DIR)/solver/solver.o $(BUILD_DIR)/solver/search.o -o $@ $(LDFLAGS)
 	@echo "Solver build successful! Binary: $@"
 
+$(TEST_TARGET): $(BUILD_DIR)/test/test.o $(BUILD_DIR)/nn/core/tensor.o $(BUILD_DIR)/nn/core/utils.o $(BUILD_DIR)/nn/core/init.o
+	@echo "Linking test $@..."
+	$(CC) $(BUILD_DIR)/test/test.o $(BUILD_DIR)/nn/core/tensor.o $(BUILD_DIR)/nn/core/utils.o $(BUILD_DIR)/nn/core/init.o -o $@ $(LDFLAGS)
+	@echo "Test build successful! Binary: $@"
+
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(GTK_CFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/test/%.o: test/%.c
+	@echo "Compiling test $<..."
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 -include $(DEPS)
 
@@ -121,6 +139,8 @@ help:
 	@echo "  all           - Build the project (default)"
 	@echo "  nn            - Build the XNOR neural network example"
 	@echo "  solver        - Build the word search solver"
+	@echo "  test          - Build tensor tests"
+	@echo "  run-test      - Build and run tensor tests"
 	@echo "  clean         - Remove all build artifacts"
 	@echo "  release       - Build optimized release"
 	@echo "  install-deps  - Install GTK3 dependencies"
@@ -130,4 +150,4 @@ help:
 	@echo "Build directory: $(BUILD_DIR)"
 	@echo "Source directory: $(SRC_DIR)"
 
-.PHONY: all nn solver clean release install-deps check-deps dirs info help
+.PHONY: all nn solver test run-test clean release install-deps check-deps dirs info help
