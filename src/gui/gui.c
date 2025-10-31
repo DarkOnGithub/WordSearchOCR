@@ -801,9 +801,7 @@ static void process_both_modes(const gchar *image_path)
         tab_processed[1] = TRUE;
 
         GtkWidget *success_label = gtk_label_new(
-            "Image processed successfully!\n\nBoth Grid Detection and Word "
-            "Detection completed.\nUse the buttons on the left to explore each "
-            "processing step.");
+            "Image processed successfully!");
         gtk_label_set_line_wrap(GTK_LABEL(success_label), TRUE);
         gtk_box_pack_start(GTK_BOX(results_container), success_label, FALSE,
                            FALSE, 0);
