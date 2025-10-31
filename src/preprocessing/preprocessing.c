@@ -1,6 +1,6 @@
-#include "../../include/processing/preprocessing.h"
-#include "../../include/analysis/contour_analysis.h"
-#include "../../include/analysis/grid_analysis.h"
+#include "processing/preprocessing.h"
+#include "analysis/contour_analysis.h"
+#include "analysis/grid_analysis.h"
 #include <stdio.h>
 
 int load_and_preprocess_image(const char *image_path, Image *image,

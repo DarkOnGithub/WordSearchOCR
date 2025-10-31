@@ -1,5 +1,5 @@
-#include "../../include/analysis/grid_analysis.h"
-#include "../../include/image/operations.h"
+#include "analysis/grid_analysis.h"
+#include "image/operations.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>

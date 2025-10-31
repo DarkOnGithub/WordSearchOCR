@@ -1,5 +1,5 @@
-#include "../../include/wordsearch/processor.h"
-#include "../../include/wordsearch/word_detection.h"
+#include "wordsearch/processor.h"
+#include "wordsearch/word_detection.h"
 #include <glib.h>
 #include <gtk/gtk.h>
 

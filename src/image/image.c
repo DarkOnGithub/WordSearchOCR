@@ -1,4 +1,4 @@
-#include "../../include/image/image.h"
+#include "image/image.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gtk/gtk.h>
 #include <stdio.h>

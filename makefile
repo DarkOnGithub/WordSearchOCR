@@ -5,8 +5,8 @@ SRC_DIR = src
 TARGET = $(BUILD_DIR)/$(PROJECT_NAME)
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -g -Iinclude
-LDFLAGS = -lm
+CFLAGS = -Wall -Wextra -std=c99 -g -mavx2 -Iinclude $(CBLAS_CFLAGS)
+LDFLAGS = -lm $(CBLAS_LIBS)
 
 MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*XNOR.c" -not -path "*/solver/main.c")
 MAIN_OBJECTS = $(MAIN_SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
@@ -16,6 +16,7 @@ NN_TARGET = $(BUILD_DIR)/nn/XNOR
 SOLVER_TARGET = $(BUILD_DIR)/solver/solver
 
 GTK3_AVAILABLE := $(shell pkg-config --exists gtk+-3.0 2>/dev/null && echo "yes" || echo "no")
+CBLAS_AVAILABLE := $(shell pkg-config --exists cblas 2>/dev/null && echo "yes" || echo "no")
 
 ifeq ($(GTK3_AVAILABLE),yes)
     GTK_CFLAGS = $(shell pkg-config --cflags gtk+-3.0)
@@ -25,30 +26,14 @@ else
     GTK_LIBS =
 endif
 
-# Detect BLAS libraries
-# Check for Nix environment first - use NIX_LDFLAGS if set
-# Otherwise, try to detect available BLAS libraries
-ifdef NIX_LDFLAGS
-    # Using Nix environment - use provided library paths
-    BLAS_LIBS = -L$(NIX_LDFLAGS) -lopenblas
+ifeq ($(CBLAS_AVAILABLE),yes)
+    CBLAS_CFLAGS = $(shell pkg-config --cflags cblas)
+    CBLAS_LIBS = $(shell pkg-config --libs cblas)
 else
-    # Try to find Nix OpenBLAS
-    NIX_BLAS_PATH := $(shell find /nix/store -name "libopenblas.so" 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "")
-    ifneq ($(NIX_BLAS_PATH),)
-        BLAS_LIBS = -L$(NIX_BLAS_PATH) -lopenblas
-    else
-        # Try pkg-config
-        BLAS_AVAILABLE := $(shell pkg-config --exists cblas 2>/dev/null && echo "yes" || echo "no")
-        ifeq ($(BLAS_AVAILABLE),yes)
-            BLAS_LIBS = $(shell pkg-config --libs cblas)
-        else
-            # Try system libraries
-            # OpenBLAS includes both BLAS and CBLAS, so just -lopenblas should work
-            # If that fails, try -lblas alone (some systems bundle CBLAS)
-            BLAS_LIBS = -lopenblas
-        endif
-    endif
+    CBLAS_CFLAGS =
+    CBLAS_LIBS = -lopenblas
 endif
+
 
 all: dirs $(TARGET)
 
@@ -124,6 +109,7 @@ info:
 	@echo "Main Sources: $(words $(MAIN_SOURCES))"
 	@echo "Main Objects: $(words $(MAIN_OBJECTS))"
 	@echo "GTK3: $(GTK3_AVAILABLE)"
+	@echo "CBLAS: $(CBLAS_AVAILABLE)"
 	@echo "Compiler: $(CC)"
 	@echo "CFLAGS: $(CFLAGS)"
 	@echo "LDFLAGS: $(LDFLAGS)"

@@ -1,5 +1,5 @@
-#include "../../include/analysis/contour_analysis.h"
-#include "../../include/image/operations.h"
+#include "analysis/contour_analysis.h"
+#include "image/operations.h"
 #include <stdlib.h>
 #include <string.h>
 

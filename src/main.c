@@ -1,11 +1,11 @@
-#include "../include/gui/gui.h"
-#include "../include/wordsearch/processor.h"
+#include "gui/gui.h"
+#include "wordsearch/processor.h"
+#include "image/operations.h"
+#include "image/image.h"
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include "../include/image/operations.h"
-#include "../include/image/image.h"
 
 
 int main(int argc, char *argv[])

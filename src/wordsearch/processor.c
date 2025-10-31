@@ -1,8 +1,8 @@
-#include "../../include/wordsearch/processor.h"
-#include "../../include/analysis/contour_analysis.h"
-#include "../../include/analysis/grid_analysis.h"
-#include "../../include/processing/preprocessing.h"
-#include "../../include/wordsearch/word_detection.h"
+#include "wordsearch/processor.h"
+#include "analysis/contour_analysis.h"
+#include "analysis/grid_analysis.h"
+#include "processing/preprocessing.h"
+#include "wordsearch/word_detection.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <dirent.h>

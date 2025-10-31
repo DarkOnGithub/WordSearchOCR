@@ -1,6 +1,6 @@
-#include "../../include/wordsearch/word_detection.h"
-#include "../../include/image/image.h"
-#include "../../include/image/operations.h"
+#include "wordsearch/word_detection.h"
+#include "image/image.h"
+#include "image/operations.h"
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
