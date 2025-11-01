@@ -16,7 +16,7 @@
 *.gch
 *.pch
 
-# Libraries
+# Libraries.id
 *.lib
 *.a
 *.la
@@ -133,3 +133,4 @@ build
 .bak
 .mtc
 build/
+!data/*.idx
