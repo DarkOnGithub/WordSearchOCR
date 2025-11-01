@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-// #include "../../nn/tensor.h"
+#include "nn/core/tensor.h"
 struct Contour;
 
 typedef struct Image
@@ -29,5 +29,5 @@ void draw_horizontal_line(Image *image, int x1, int x2, int y, uint32_t color);
 void draw_vertical_line(Image *image, int x, int y1, int y2, uint32_t color);
 void extract_rectangle(const Image *image, int x, int y, int width, int height,
                        Image *extracted_image);
-                       // Tensor* to_tensor(Image* image);
+Tensor* to_tensor(Image* image);
 void free_image(Image *image);

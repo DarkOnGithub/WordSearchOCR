@@ -397,6 +397,33 @@ int correctBinaryImageOrientation(Image *image)
 }
 
 /*
+    Invert a grayscale image (255 - pixel_value).
+    !Warning: Only works on grayscale images. Modifies the image in place.
+*/
+void invert(Image *image)
+{
+    if (!image)
+    {
+        fprintf(stderr, "Error: Invalid image for invert\n");
+        return;
+    }
+
+    if (!image->is_grayscale || !image->gray_pixels)
+    {
+        fprintf(stderr, "Error: Invert only works on grayscale images\n");
+        return;
+    }
+
+    int total_pixels = image->width * image->height;
+    for (int i = 0; i < total_pixels; i++)
+    {
+        image->gray_pixels[i] = 255 - image->gray_pixels[i];
+    }
+
+    printf("Inverted grayscale image (%dx%d)\n", image->width, image->height);
+}
+
+/*
     Create a structuring element of the specified shape and size.
     A structuring element (also called a kernel) is a small matrix used in
    morphological operations on images. Resource:

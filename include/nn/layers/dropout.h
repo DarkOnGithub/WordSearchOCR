@@ -23,4 +23,4 @@ void dropout_output_free(DropoutOutput* result);
 
 DropoutBackwardOutput* dropout_backward(Dropout* layer, DropoutOutput* forward_result,
                                        Tensor* output_grad);
-void dropout_backward_result_free(DropoutBackwardOutput* result);
+void dropout_backward_output_free(DropoutBackwardOutput* result);

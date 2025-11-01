@@ -10,4 +10,5 @@ typedef struct {
 } LayerGrad;
 
 LayerGrad* layer_grad_create(Tensor* weights, Tensor* biases);
+void layer_zero_grad(LayerGrad* layer_grad);
 void layer_grad_free(LayerGrad* layer_grad);

@@ -726,3 +726,26 @@ void free_image(Image *image)
     image->height = 0;
     image->is_grayscale = false;
 }
+
+Tensor* to_tensor(Image* image) {
+    if (!image) {
+        fprintf(stderr, "Error: Invalid parameters to to_tensor\n");
+        return NULL;
+    }
+
+    int channels = image->is_grayscale ? 1 : 4;
+    int shape[4] = {1, channels, image->height, image->width};
+    Tensor* tensor = tensor_create(shape, 4);
+
+    if (image->is_grayscale) {
+        for (int i = 0; i < image->width * image->height; i++) {
+            tensor->data[i] = image->gray_pixels[i] / 255.0f;
+        }
+    } else {
+        for (int i = 0; i < image->width * image->height * 4; i++) {
+            tensor->data[i] = image->rgba_pixels[i] / 255.0f;
+        }
+    }
+
+    return tensor;
+}

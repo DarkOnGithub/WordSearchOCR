@@ -5,7 +5,6 @@
 #include <immintrin.h>
 #include <stdio.h>
 #include <math.h>
-#include <cblas.h>
 
 Tensor* tensor_create(int* shape, int ndim) {
     Tensor* tensor = (Tensor*)malloc(sizeof(Tensor));
@@ -40,7 +39,9 @@ Tensor* tensor_create_zero(int* shape, int ndim) {
 Tensor* tensor_create_ones(int* shape, int ndim) {
     Tensor* tensor = tensor_create(shape, ndim);
     if (!tensor) return NULL;
-    memset(tensor->data, 1, sizeof(float) * tensor->size);
+    for (int i = 0; i < tensor->size; i++) {
+        tensor->data[i] = 1.0f;
+    }
     return tensor;
 }
 
@@ -217,6 +218,21 @@ void tensor_add_scalar(Tensor* tensor, float scalar) {
     }
 }
 
+Tensor* tensor_add_scalar_copy(Tensor* tensor, float scalar) {
+    if (!tensor) return NULL;
+
+    Tensor* result = tensor_create(tensor->shape, tensor->ndim);
+    if (!result) return NULL;
+
+    // Copy data
+    memcpy(result->data, tensor->data, tensor->size * sizeof(float));
+
+    // Add scalar in place
+    tensor_add_scalar(result, scalar);
+
+    return result;
+}
+
 Tensor* tensor_subtract(Tensor* tensor1, Tensor* tensor2) {
     if (!tensor1 || !tensor2 || !tensors_compatible(tensor1, tensor2)) {
         return NULL;
@@ -357,6 +373,97 @@ void tensor_multiply_scalar(Tensor* tensor, float scalar) {
     }
 }
 
+Tensor* tensor_multiply_scalar_copy(Tensor* tensor, float scalar) {
+    if (!tensor) return NULL;
+
+    Tensor* result = tensor_create(tensor->shape, tensor->ndim);
+    if (!result) return NULL;
+
+    // Copy data
+    memcpy(result->data, tensor->data, tensor->size * sizeof(float));
+
+    // Multiply in place
+    tensor_multiply_scalar(result, scalar);
+
+    return result;
+}
+
+Tensor* tensor_divide(Tensor* tensor1, Tensor* tensor2) {
+    if (!tensor1 || !tensor2 || !tensors_compatible(tensor1, tensor2)) {
+        return NULL;
+    }
+
+    Tensor* result = tensor_create(tensor1->shape, tensor1->ndim);
+    if (!result) return NULL;
+
+    int size = tensor1->size;
+    float* data1 = tensor1->data;
+    float* data2 = tensor2->data;
+    float* result_data = result->data;
+
+    int i = 0;
+    for (; i <= size - 8; i += 8) {
+        __m256 vec1 = _mm256_loadu_ps(&data1[i]);
+        __m256 vec2 = _mm256_loadu_ps(&data2[i]);
+        __m256 quotient = _mm256_div_ps(vec1, vec2);
+        _mm256_storeu_ps(&result_data[i], quotient);
+    }
+
+    for (; i < size; i++) {
+        result_data[i] = data1[i] / data2[i];
+    }
+
+    return result;
+}
+
+Tensor* tensor_square(Tensor* tensor) {
+    if (!tensor) return NULL;
+
+    Tensor* result = tensor_create(tensor->shape, tensor->ndim);
+    if (!result) return NULL;
+
+    int size = tensor->size;
+    float* data = tensor->data;
+    float* result_data = result->data;
+
+    int i = 0;
+    for (; i <= size - 8; i += 8) {
+        __m256 vec = _mm256_loadu_ps(&data[i]);
+        __m256 squared = _mm256_mul_ps(vec, vec);
+        _mm256_storeu_ps(&result_data[i], squared);
+    }
+
+    for (; i < size; i++) {
+        result_data[i] = data[i] * data[i];
+    }
+
+    return result;
+}
+
+Tensor* tensor_sqrt(Tensor* tensor) {
+    if (!tensor) return NULL;
+
+    Tensor* result = tensor_create(tensor->shape, tensor->ndim);
+    if (!result) return NULL;
+
+    int size = tensor->size;
+    float* data = tensor->data;
+    float* result_data = result->data;
+
+    int i = 0;
+    for (; i <= size - 8; i += 8) {
+        __m256 vec = _mm256_loadu_ps(&data[i]);
+        __m256 sqrt_vec = _mm256_sqrt_ps(vec);
+        _mm256_storeu_ps(&result_data[i], sqrt_vec);
+    }
+
+    for (; i < size; i++) {
+        result_data[i] = sqrtf(data[i]);
+    }
+
+    return result;
+}
+
 Tensor* tensor_power(Tensor* tensor, float power) {
     if (!tensor) return NULL;
 
@@ -493,171 +600,67 @@ static int get_linear_index(const int* indices, const int* strides, int ndim) {
     return index;
 }
 
-Tensor* tensor_matmul(Tensor* a, Tensor* b) {
-    if (!a || !b) return NULL;
-
-    int a_ndim = a->ndim;
-    int b_ndim = b->ndim;
-
-    Tensor* a_temp = a;
-    Tensor* b_temp = b;
-    int free_a_temp = 0;
-    int free_b_temp = 0;
-
-    if (a_ndim == 1) {
-        int new_shape[] = {1, a->shape[0]};
-        a_temp = tensor_from_data(a->data, new_shape, 2);
-        free_a_temp = 1;
-        a_ndim = 2;
-    }
-
-    if (b_ndim == 1) {
-        int new_shape[] = {b->shape[0], 1};
-        b_temp = tensor_from_data(b->data, new_shape, 2);
-        free_b_temp = 1;
-        b_ndim = 2;
-    }
-
-    if (a_temp->shape[a_ndim - 1] != b_temp->shape[b_ndim - 2]) {
-        if (free_a_temp) tensor_free(a_temp);
-        if (free_b_temp) tensor_free(b_temp);
-        return NULL;
-    }
-
-    int a_batch_ndim = a_ndim - 2;
-    int b_batch_ndim = b_ndim - 2;
-
-    int* broadcast_shape = NULL;
-    int broadcast_ndim = 0;
-
-    if (!can_broadcast(a_temp->shape, a_batch_ndim, b_temp->shape, b_batch_ndim, &broadcast_shape, &broadcast_ndim)) {
-        if (free_a_temp) tensor_free(a_temp);
-        if (free_b_temp) tensor_free(b_temp);
-        return NULL;
-    }
-
-    int out_ndim = broadcast_ndim + 2;
-    int* out_shape = (int*)malloc(sizeof(int) * out_ndim);
-    if (!out_shape) {
-        free(broadcast_shape);
-        if (free_a_temp) tensor_free(a_temp);
-        if (free_b_temp) tensor_free(b_temp);
-        return NULL;
-    }
-
-    for (int i = 0; i < broadcast_ndim; i++) {
-        out_shape[i] = broadcast_shape[i];
-    }
-    out_shape[out_ndim - 2] = a_temp->shape[a_ndim - 2];
-    out_shape[out_ndim - 1] = b_temp->shape[b_ndim - 1];
-
-    Tensor* result = tensor_create(out_shape, out_ndim);
-    free(out_shape);
-    free(broadcast_shape);
-
-    if (!result) {
-        if (free_a_temp) tensor_free(a_temp);
-        if (free_b_temp) tensor_free(b_temp);
-        return NULL;
-    }
-
-    if (a_ndim == 2 && b_ndim == 2) {
-        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                   a_temp->shape[0], b_temp->shape[1], a_temp->shape[1],
-                   1.0f, a_temp->data, a_temp->shape[1],
-                   b_temp->data, b_temp->shape[1],
-                   0.0f, result->data, b_temp->shape[1]);
-    } else {
-        int batch_size = 1;
-        for (int i = 0; i < broadcast_ndim; i++) {
-            batch_size *= result->shape[i];
-        }
-
-        int m = a_temp->shape[a_ndim - 2];
-        int k = a_temp->shape[a_ndim - 1];
-        int n = b_temp->shape[b_ndim - 1];
-
-        int* a_batch_strides = (int*)malloc(sizeof(int) * broadcast_ndim);
-        int* b_batch_strides = (int*)malloc(sizeof(int) * broadcast_ndim);
-        int* result_batch_strides = (int*)malloc(sizeof(int) * broadcast_ndim);
-
-        if (a_batch_ndim > 0) {
-            compute_strides(a_temp->shape, a_batch_ndim, a_batch_strides);
-        }
-        if (b_batch_ndim > 0) {
-            compute_strides(b_temp->shape, b_batch_ndim, b_batch_strides);
-        }
-        compute_strides(result->shape, broadcast_ndim, result_batch_strides);
-
-        int* a_padded_strides = (int*)malloc(sizeof(int) * broadcast_ndim);
-        int* b_padded_strides = (int*)malloc(sizeof(int) * broadcast_ndim);
-
-        for (int i = 0; i < broadcast_ndim; i++) {
-            a_padded_strides[i] = (i >= broadcast_ndim - a_batch_ndim) ? a_batch_strides[i - (broadcast_ndim - a_batch_ndim)] : 0;
-            b_padded_strides[i] = (i >= broadcast_ndim - b_batch_ndim) ? b_batch_strides[i - (broadcast_ndim - b_batch_ndim)] : 0;
-        }
-
-        int* batch_indices = (int*)malloc(sizeof(int) * broadcast_ndim);
-
-        for (int batch = 0; batch < batch_size; batch++) {
-            int temp_batch = batch;
-            for (int i = broadcast_ndim - 1; i >= 0; i--) {
-                batch_indices[i] = temp_batch % result->shape[i];
-                temp_batch /= result->shape[i];
-            }
-
-            int a_batch_idx = get_linear_index(batch_indices, a_padded_strides, broadcast_ndim);
-            int b_batch_idx = get_linear_index(batch_indices, b_padded_strides, broadcast_ndim);
-            int result_batch_idx = get_linear_index(batch_indices, result_batch_strides, broadcast_ndim);
-
-            float* a_ptr = &a_temp->data[a_batch_idx * m * k];
-            float* b_ptr = &b_temp->data[b_batch_idx * k * n];
-            float* c_ptr = &result->data[result_batch_idx * m * n];
-
-            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                       m, n, k,
-                       1.0f, a_ptr, k,
-                       b_ptr, n,
-                       0.0f, c_ptr, n);
-        }
-
-        free(batch_indices);
-        free(result_batch_strides);
-        free(b_padded_strides);
-        free(a_padded_strides);
-        if (a_batch_ndim > 0) free(a_batch_strides);
-        if (b_batch_ndim > 0) free(b_batch_strides);
-    }
-
-    Tensor* final_result = result;
-    if (a->ndim == 1 && b->ndim == 1) {
-        int scalar_shape[] = {};
-        final_result = tensor_from_data(&result->data[0], scalar_shape, 0);
-        tensor_free(result);
-    } else if (a->ndim == 1 || b->ndim == 1) {
-        int new_ndim = out_ndim - 1;
-        int* new_shape = (int*)malloc(sizeof(int) * new_ndim);
-        if (new_shape) {
-            if (a->ndim == 1) {
-                for (int i = 0; i < new_ndim; i++) {
-                    new_shape[i] = result->shape[i + 1];
-                }
-            } else {
-                for (int i = 0; i < new_ndim; i++) {
-                    new_shape[i] = result->shape[i];
-                }
-            }
-            final_result = tensor_from_data(result->data, new_shape, new_ndim);
-            free(new_shape);
-            tensor_free(result);
-        }
-    }
-
-    if (free_a_temp) tensor_free(a_temp);
-    if (free_b_temp) tensor_free(b_temp);
-
-    return final_result;
+// Helper function for horizontal sum of __m256
+static inline float _mm256_reduce_add_ps(__m256 v) {
+    __m128 vlow  = _mm256_castps256_ps128(v);
+    __m128 vhigh = _mm256_extractf128_ps(v, 1);
+    vlow  = _mm_add_ps(vlow, vhigh);
+    vlow  = _mm_hadd_ps(vlow, vlow);
+    vlow  = _mm_hadd_ps(vlow, vlow);
+    return _mm_cvtss_f32(vlow);
 }
+
+// SIMD matrix multiplication: C = alpha * A * B + beta * C
+// A is m x k, B is k x n, C is m x n
+static void tensor_sgemm_simd(int m, int n, int k, float alpha, const float* A, int lda,
+                              const float* B, int ldb, float beta, float* C, int ldc) {
+    // Initialize C with beta * C if beta != 0, or zero it out
+    if (beta == 0.0f) {
+        memset(C, 0, sizeof(float) * m * ldc);
+    } else if (beta != 1.0f) {
+        for (int i = 0; i < m; i++) {
+            for (int j = 0; j < n; j++) {
+                C[i * ldc + j] *= beta;
+            }
+        }
+    }
+
+    // If alpha is 0, we're done
+    if (alpha == 0.0f) return;
+
+    // Simple SIMD implementation: process one row of C at a time
+    for (int i = 0; i < m; i++) {
+        for (int j = 0; j < n; j++) {
+            float sum = 0.0f;
+            const float* a_ptr = &A[i * lda];
+            const float* b_ptr = &B[j];
+
+            // Use SIMD for the inner loop when possible
+            int l = 0;
+            __m256 sum_vec = _mm256_setzero_ps();
+
+            for (; l <= k - 8; l += 8) {
+                __m256 a_vec = _mm256_loadu_ps(&a_ptr[l]);
+                __m256 b_vec = _mm256_setr_ps(
+                    b_ptr[(l+0) * ldb], b_ptr[(l+1) * ldb], b_ptr[(l+2) * ldb], b_ptr[(l+3) * ldb],
+                    b_ptr[(l+4) * ldb], b_ptr[(l+5) * ldb], b_ptr[(l+6) * ldb], b_ptr[(l+7) * ldb]
+                );
+                sum_vec = _mm256_fmadd_ps(a_vec, b_vec, sum_vec);
+            }
+
+            // Horizontal sum of the SIMD result
+            sum += _mm256_reduce_add_ps(sum_vec);
+
+            // Handle remaining elements
+            for (; l < k; l++) {
+                sum += a_ptr[l] * b_ptr[l * ldb];
+            }
+
+            C[i * ldc + j] += alpha * sum;
+        }
+    }
+}
+
 
 void tensor_add_bias_inplace(Tensor* tensor, const Tensor* bias) {
     if (!tensor || !bias) return;
@@ -763,11 +766,10 @@ void tensor_outer_product_accumulate(Tensor* result, const Tensor* a, const Tens
     int output_size = result->shape[0];
     int input_size = result->shape[1];
 
-    cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
-                output_size, input_size, batch_size,
-                1.0f, a->data, a->shape[1],
-                b->data, b->shape[1],
-                1.0f, result->data, input_size);
+    tensor_sgemm_simd(output_size, input_size, batch_size,
+                     1.0f, a->data, a->shape[1],
+                     b->data, b->shape[1],
+                     1.0f, result->data, input_size);
 }
 
 Tensor* tensor_transpose(const Tensor* tensor) {
@@ -794,6 +796,28 @@ Tensor* tensor_transpose(const Tensor* tensor) {
     }
 
     return result;
+}
+
+void tensor_scale_inplace(Tensor* tensor, float scale) {
+    if (!tensor || !tensor->data) return;
+
+    int size = tensor->size;
+    float* data = tensor->data;
+
+    // Use SIMD for scaling if AVX2 is available
+    int i = 0;
+    __m256 scale_vec = _mm256_set1_ps(scale);
+
+    for (; i <= size - 8; i += 8) {
+        __m256 vec = _mm256_loadu_ps(&data[i]);
+        vec = _mm256_mul_ps(vec, scale_vec);
+        _mm256_storeu_ps(&data[i], vec);
+    }
+
+    // Handle remaining elements
+    for (; i < size; i++) {
+        data[i] *= scale;
+    }
 }
 
 void tensor_free(Tensor* tensor) {

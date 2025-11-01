@@ -1,15 +1,70 @@
-#include "dropout2d.h"
+#include "nn/layers/dropout2d.h"
 #include <stdlib.h>
 #include <stdio.h>
-#include <time.h>
-#include <math.h>
+#include <stdbool.h>
+#include <immintrin.h>  // AVX/AVX2 intrinsics
+#include "nn/core/utils.h"
+#include <string.h>
 
-// Static function for random number generation
-static float random_float() {
-    return (float)rand() / (float)RAND_MAX;
+static inline void broadcast_mask_to_tensor(float* __restrict output,
+                                                 const float* __restrict input,
+                                                 const float* __restrict mask,
+                                                 int batch_size, int channels,
+                                                 int height, int width) {
+    // Broadcast mask from (batch_size, channels, 1, 1) to (batch_size, channels, height, width)
+    const int spatial_size = height * width;
+
+    for (int b = 0; b < batch_size; ++b) {
+        for (int c = 0; c < channels; ++c) {
+            const int mask_idx = b * channels + c;
+            const __m256 mask_vec = _mm256_set1_ps(mask[mask_idx]);
+
+            const int input_base = (b * channels + c) * spatial_size;
+            const int output_base = (b * channels + c) * spatial_size;
+
+            int w = 0;
+            for (; w <= spatial_size - 8; w += 8) {
+                __m256 input_vec = _mm256_loadu_ps(&input[input_base + w]);
+                __m256 result_vec = _mm256_mul_ps(input_vec, mask_vec);
+                _mm256_storeu_ps(&output[output_base + w], result_vec);
+            }
+
+            for (; w < spatial_size; ++w) {
+                output[output_base + w] = input[input_base + w] * mask[mask_idx];
+            }
+        }
+    }
 }
 
-// Constructor
+static inline void broadcast_mask_to_grad(float* __restrict input_grad,
+                                               const float* __restrict output_grad,
+                                               const float* __restrict mask,
+                                               int batch_size, int channels,
+                                               int height, int width) {
+    // Broadcast mask from (batch_size, channels, 1, 1) to (batch_size, channels, height, width)
+    const int spatial_size = height * width;
+
+    for (int b = 0; b < batch_size; ++b) {
+        for (int c = 0; c < channels; ++c) {
+            const int mask_idx = b * channels + c;
+            const __m256 mask_vec = _mm256_set1_ps(mask[mask_idx]);
+
+            const int grad_base = (b * channels + c) * spatial_size;
+
+            int w = 0;
+            for (; w <= spatial_size - 8; w += 8) {
+                __m256 grad_vec = _mm256_loadu_ps(&output_grad[grad_base + w]);
+                __m256 result_vec = _mm256_mul_ps(grad_vec, mask_vec);
+                _mm256_storeu_ps(&input_grad[grad_base + w], result_vec);
+            }
+
+            for (; w < spatial_size; ++w) {
+                input_grad[grad_base + w] = output_grad[grad_base + w] * mask[mask_idx];
+            }
+        }
+    }
+}
+
 Dropout2D* dropout2d_create(float dropout_rate) {
     if (dropout_rate < 0.0f || dropout_rate >= 1.0f) {
         printf("Error: Dropout2D rate must be in range [0.0, 1.0)\n");
@@ -18,61 +73,40 @@ Dropout2D* dropout2d_create(float dropout_rate) {
 
     Dropout2D* layer = (Dropout2D*)malloc(sizeof(Dropout2D));
     if (!layer) return NULL;
-
     layer->dropout_rate = dropout_rate;
-    layer->training = true;  // Default to training mode
-
-    // Seed random number generator
-    srand((unsigned int)time(NULL));
-
+    layer->training = true;
     return layer;
 }
 
-// Destructor
 void dropout2d_free(Dropout2D* layer) {
     if (layer) {
         free(layer);
     }
 }
 
-// Mode switching
-void dropout2d_train(Dropout2D* layer) {
-    if (layer) {
-        layer->training = true;
-    }
-}
 
-void dropout2d_eval(Dropout2D* layer) {
-    if (layer) {
-        layer->training = false;
-    }
-}
-
-// Forward pass
-Dropout2DResult* dropout2d_forward(Dropout2D* layer, Tensor* input) {
+Dropout2DOutput* dropout2d_forward(Dropout2D* layer, Tensor* input) {
     if (!layer || !input) return NULL;
 
-    // Create output tensor with same dimensions as input
-    Tensor* output = tensor_create(input->batch_size, input->channels,
-                                  input->height, input->width);
+    Tensor* output = tensor_create(input->shape, input->ndim);
     if (!output) return NULL;
 
     Tensor* mask = NULL;
 
     if (layer->training && layer->dropout_rate > 0.0f) {
-        // Training mode: apply dropout2d
         // Create mask with shape (batch_size, channels, 1, 1)
-        mask = tensor_create(input->batch_size, input->channels, 1, 1);
+        int mask_shape[4] = {input->shape[0], input->shape[1], 1, 1};
+        mask = tensor_create(mask_shape, 4);
         if (!mask) {
             tensor_free(output);
             return NULL;
         }
 
         // Generate dropout mask for each channel in each batch
-        for (int b = 0; b < input->batch_size; ++b) {
-            for (int c = 0; c < input->channels; ++c) {
+        for (int b = 0; b < input->shape[0]; ++b) {
+            for (int c = 0; c < input->shape[1]; ++c) {
                 float rand_val = random_float();
-                int mask_idx = b * input->channels + c;
+                int mask_idx = b * input->shape[1] + c;
 
                 if (rand_val < layer->dropout_rate) {
                     // Drop this entire channel
@@ -84,31 +118,16 @@ Dropout2DResult* dropout2d_forward(Dropout2D* layer, Tensor* input) {
             }
         }
 
-        // Apply mask to output tensor by broadcasting
-        for (int b = 0; b < input->batch_size; ++b) {
-            for (int c = 0; c < input->channels; ++c) {
-                int mask_idx = b * input->channels + c;
-                float mask_val = mask->data[mask_idx];
-
-                // Apply mask to all spatial positions in this channel
-                for (int h = 0; h < input->height; ++h) {
-                    for (int w = 0; w < input->width; ++w) {
-                        int input_idx = ((b * input->channels + c) * input->height + h) * input->width + w;
-                        output->data[input_idx] = input->data[input_idx] * mask_val;
-                    }
-                }
-            }
-        }
+        broadcast_mask_to_tensor(output->data, input->data, mask->data,
+                                     input->shape[0], input->shape[1],
+                                     input->shape[2], input->shape[3]);
     } else {
         // Inference mode or dropout_rate = 0: scale by (1-dropout_rate)
-        float scale = 1.0f - layer->dropout_rate;
-        for (int i = 0; i < input->size; ++i) {
-            output->data[i] = input->data[i] * scale;
-        }
+        memcpy(output->data, input->data, input->size * sizeof(float));
+        tensor_scale_inplace(output, 1.0f - layer->dropout_rate);
     }
 
-    // Create result structure
-    Dropout2DResult* result = (Dropout2DResult*)malloc(sizeof(Dropout2DResult));
+    Dropout2DOutput* result = (Dropout2DOutput*)malloc(sizeof(Dropout2DOutput));
     if (!result) {
         tensor_free(output);
         if (mask) tensor_free(mask);
@@ -121,8 +140,7 @@ Dropout2DResult* dropout2d_forward(Dropout2D* layer, Tensor* input) {
     return result;
 }
 
-// Free result structure
-void dropout2d_result_free(Dropout2DResult* result) {
+void dropout2d_output_free(Dropout2DOutput* result) {
     if (result) {
         if (result->output) tensor_free(result->output);
         if (result->mask) tensor_free(result->mask);
@@ -130,52 +148,37 @@ void dropout2d_result_free(Dropout2DResult* result) {
     }
 }
 
-// Backward pass
-Dropout2DBackwardResult* dropout2d_backward(Dropout2D* layer, Dropout2DResult* forward_result,
+Dropout2DBackwardOutput* dropout2d_backward(Dropout2D* layer, Dropout2DOutput* forward_result,
                                            Tensor* output_grad) {
     if (!layer || !forward_result || !forward_result->output || !output_grad) return NULL;
 
-    // Check if output_grad dimensions match forward result output dimensions
-    if (output_grad->batch_size != forward_result->output->batch_size ||
-        output_grad->channels != forward_result->output->channels ||
-        output_grad->height != forward_result->output->height ||
-        output_grad->width != forward_result->output->width) {
-        printf("Error: Output gradient dimensions don't match forward output dimensions got %d x %d x %d x %d expected %d x %d x %d x %d\n", output_grad->batch_size, output_grad->channels, output_grad->height, output_grad->width, forward_result->output->batch_size, forward_result->output->channels, forward_result->output->height, forward_result->output->width);
+    if (output_grad->ndim != forward_result->output->ndim ||
+        output_grad->shape[0] != forward_result->output->shape[0] ||
+        output_grad->shape[1] != forward_result->output->shape[1] ||
+        output_grad->shape[2] != forward_result->output->shape[2] ||
+        output_grad->shape[3] != forward_result->output->shape[3]) {
+        printf("Error: Output gradient dimensions don't match forward output dimensions got %d x %d x %d x %d expected %d x %d x %d x %d\n",
+               output_grad->shape[0], output_grad->shape[1], output_grad->shape[2], output_grad->shape[3],
+               forward_result->output->shape[0], forward_result->output->shape[1], forward_result->output->shape[2], forward_result->output->shape[3]);
         return NULL;
     }
 
-    // Create input gradient tensor with same dimensions as forward input
-    Tensor* input_grad = tensor_create(output_grad->batch_size, output_grad->channels,
-                                       output_grad->height, output_grad->width);
+    Tensor* input_grad = tensor_create(output_grad->shape, output_grad->ndim);
     if (!input_grad) return NULL;
 
     if (layer->training && forward_result->mask) {
         // Training mode: use the dropout mask to route gradients
         // Broadcast mask from (batch_size, channels, 1, 1) to full tensor shape
-        for (int b = 0; b < output_grad->batch_size; ++b) {
-            for (int c = 0; c < output_grad->channels; ++c) {
-                int mask_idx = b * output_grad->channels + c;
-                float mask_val = forward_result->mask->data[mask_idx];
-
-                // Apply mask to all spatial positions in this channel
-                for (int h = 0; h < output_grad->height; ++h) {
-                    for (int w = 0; w < output_grad->width; ++w) {
-                        int grad_idx = ((b * output_grad->channels + c) * output_grad->height + h) * output_grad->width + w;
-                        input_grad->data[grad_idx] = output_grad->data[grad_idx] * mask_val;
-                    }
-                }
-            }
-        }
+        broadcast_mask_to_grad(input_grad->data, output_grad->data, forward_result->mask->data,
+                                   output_grad->shape[0], output_grad->shape[1],
+                                   output_grad->shape[2], output_grad->shape[3]);
     } else {
         // Inference mode or no mask: scale gradients by (1-dropout_rate)
-        float scale = 1.0f - layer->dropout_rate;
-        for (int i = 0; i < output_grad->size; ++i) {
-            input_grad->data[i] = output_grad->data[i] * scale;
-        }
+        memcpy(input_grad->data, output_grad->data, output_grad->size * sizeof(float));
+        tensor_scale_inplace(input_grad, 1.0f - layer->dropout_rate);
     }
 
-    // Create result structure
-    Dropout2DBackwardResult* result = (Dropout2DBackwardResult*)malloc(sizeof(Dropout2DBackwardResult));
+    Dropout2DBackwardOutput* result = (Dropout2DBackwardOutput*)malloc(sizeof(Dropout2DBackwardOutput));
     if (!result) {
         tensor_free(input_grad);
         return NULL;
@@ -185,19 +188,10 @@ Dropout2DBackwardResult* dropout2d_backward(Dropout2D* layer, Dropout2DResult* f
     return result;
 }
 
-// Free backward result structure
-void dropout2d_backward_result_free(Dropout2DBackwardResult* result) {
+void dropout2d_backward_output_free(Dropout2DBackwardOutput* result) {
     if (result) {
         if (result->input_grad) tensor_free(result->input_grad);
         free(result);
     }
 }
 
-// Utility functions
-float dropout2d_get_rate(Dropout2D* layer) {
-    return layer ? layer->dropout_rate : 0.0f;
-}
-
-bool dropout2d_is_training(Dropout2D* layer) {
-    return layer ? layer->training : false;
-}

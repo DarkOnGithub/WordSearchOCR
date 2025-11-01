@@ -1,13 +1,14 @@
 #include "nn/layers/linear.h"
 #include "nn/core/layer_grad.h"
-#include "nn/core/init.h"
+#include "nn/core/tensor.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
 #include <string.h>
-#include <immintrin.h>
-#include <cblas.h>
+#include <immintrin.h>  // AVX/AVX2 intrinsics
+#include "nn/core/init.h"
 
-#define M_PI 3.14159265358979323846
+
 
 Linear* linear_create(int input_size, int output_size) {
     if (input_size <= 0 || output_size <= 0) {
@@ -21,14 +22,22 @@ Linear* linear_create(int input_size, int output_size) {
     layer->input_size = input_size;
     layer->output_size = output_size;
 
-    int weights_shape[2] = {output_size, input_size};
-    int biases_shape[2] = {output_size, 1};
-    Tensor *weights = tensor_create(weights_shape, 2);
-    Tensor *biases = tensor_create(biases_shape, 2);
+    int weight_shape[2] = {input_size, output_size};
+    int bias_shape[1] = {output_size};
+    Tensor *weights = tensor_create(weight_shape, 2);
+    Tensor *biases = tensor_create(bias_shape, 1);
     layer->layer_grad = layer_grad_create(weights, biases);
 
-    init_kaiming_normal(weights);
-    memset(biases->data, 0, biases->size * sizeof(float));
+    if (!layer->layer_grad) {
+        tensor_free(weights);
+        tensor_free(biases);
+        free(layer);
+        return NULL;
+    }
+
+    init_kaiming_normal(layer->layer_grad->weights);
+    memset(layer->layer_grad->biases->data, 0, layer->layer_grad->biases->size * sizeof(float));
+
     layer->input_cache = NULL;
 
     return layer;
@@ -36,7 +45,10 @@ Linear* linear_create(int input_size, int output_size) {
 
 void linear_free(Linear* layer) {
     if (layer) {
-        if (layer->layer_grad) layer_grad_free(layer->layer_grad);
+        if (layer->layer_grad->weights) tensor_free(layer->layer_grad->weights);
+        if (layer->layer_grad->biases) tensor_free(layer->layer_grad->biases);
+        if (layer->layer_grad->weight_grad) tensor_free(layer->layer_grad->weight_grad);
+        if (layer->layer_grad->bias_grad) tensor_free(layer->layer_grad->bias_grad);
         if (layer->input_cache) tensor_free(layer->input_cache);
         free(layer);
     }
@@ -45,17 +57,23 @@ void linear_free(Linear* layer) {
 LinearOutput* linear_forward(Linear* layer, Tensor* input) {
     if (!layer || !input) return NULL;
 
-    if (input->ndim != 2) {
-        printf("Error: Linear layer expects 2D input (batch_size, input_size), got %dD\n", input->ndim);
+    int batch_size;
+    int flattened_input_size;
+
+    if (input->ndim == 2) {
+        batch_size = input->shape[0];
+        flattened_input_size = input->shape[1];
+    } else if (input->ndim == 4) {
+        batch_size = input->shape[0];
+        flattened_input_size = input->shape[1] * input->shape[2] * input->shape[3];
+    } else {
+        printf("Error: Input must be 2D or 4D tensor\n");
         return NULL;
     }
 
-    int batch_size = input->shape[0];
-    int input_size = input->shape[1];
-
-    if (input_size != layer->input_size) {
+    if (flattened_input_size != layer->input_size) {
         printf("Error: Input size %d doesn't match layer input size %d\n",
-               input_size, layer->input_size);
+               flattened_input_size, layer->input_size);
         return NULL;
     }
 
@@ -64,33 +82,62 @@ LinearOutput* linear_forward(Linear* layer, Tensor* input) {
     if (!output) return NULL;
 
     if (layer->input_cache) tensor_free(layer->input_cache);
-    int input_cache_shape[2] = {batch_size, input_size};
+    int input_cache_shape[2] = {batch_size, flattened_input_size};
     layer->input_cache = tensor_create(input_cache_shape, 2);
     if (!layer->input_cache) {
         tensor_free(output);
         return NULL;
     }
 
-    // Copy input to cache
     memcpy(layer->input_cache->data, input->data, input->size * sizeof(float));
 
-    // Perform matrix multiplication: output = input @ weights + bias
-    // Note: This assumes weights are stored in row-major order
-    // For proper linear layer behavior, we might need weights.T depending on convention
-    Tensor* temp_output = tensor_matmul(layer->input_cache, layer->layer_grad->weights);
-    if (!temp_output) {
-        tensor_free(output);
-        return NULL;
+    const int M = batch_size;
+    const int K = layer->input_size;
+    const int N = layer->output_size;
+
+    memset(output->data, 0, output->size * sizeof(float));
+    #pragma omp parallel for schedule(static)
+    for (int m = 0; m < M; ++m) {
+        const float* input_row = &layer->input_cache->data[m * K];
+        float* output_row = &output->data[m * N];
+
+        for (int k = 0; k < K; ++k) {
+            const float input_val = input_row[k];
+            const float* weight_row = &layer->layer_grad->weights->data[k * N];
+
+            __m256 input_broadcast = _mm256_set1_ps(input_val);
+
+            int n = 0;
+            for (; n <= N - 8; n += 8) {
+                __m256 output_vec = _mm256_loadu_ps(&output_row[n]);
+                __m256 weight_vec = _mm256_loadu_ps(&weight_row[n]);
+                output_vec = _mm256_fmadd_ps(input_broadcast, weight_vec, output_vec);
+                _mm256_storeu_ps(&output_row[n], output_vec);
+            }
+
+            for (; n < N; ++n) {
+                output_row[n] += input_val * weight_row[n];
+            }
+        }
     }
 
-    // Copy result to output
-    memcpy(output->data, temp_output->data, output->size * sizeof(float));
-    tensor_free(temp_output);
 
-    // Add bias to each row of output using tensor operation
-    tensor_add_bias_inplace(output, layer->layer_grad->biases);
+    #pragma omp parallel for schedule(static) if (batch_size > 4)
+    for (int b = 0; b < batch_size; ++b) {
+        float* output_row = &output->data[b * layer->output_size];
+        int o = 0;
+        for (; o <= layer->output_size - 8; o += 8) {
+            __m256 output_vec = _mm256_loadu_ps(&output_row[o]);
+            __m256 bias_vec = _mm256_loadu_ps(&layer->layer_grad->biases->data[o]);
+            output_vec = _mm256_add_ps(output_vec, bias_vec);
+            _mm256_storeu_ps(&output_row[o], output_vec);
+        }
+        for (; o < layer->output_size; ++o) {
+            output_row[o] += layer->layer_grad->biases->data[o];
+        }
+    }
 
-    // Create result structure
+
     LinearOutput* result = (LinearOutput*)malloc(sizeof(LinearOutput));
     if (!result) {
         tensor_free(output);
@@ -103,79 +150,113 @@ LinearOutput* linear_forward(Linear* layer, Tensor* input) {
     return result;
 }
 
-// Free result structure
 void linear_output_free(LinearOutput* result) {
     if (result) {
         if (result->output) tensor_free(result->output);
-        // Don't free layer here, it's managed separately
         free(result);
     }
 }
 
-// Backward pass implementation
 LinearBackwardOutput* linear_backward(Linear* layer, LinearOutput* forward_result,
                                      Tensor* output_grad) {
     if (!layer || !forward_result || !output_grad || !layer->input_cache) return NULL;
 
-    // Check output gradient dimensions - expect 2D tensor (batch_size, output_size)
-    if (output_grad->ndim != 2) {
-        printf("Error: Output gradient should be 2D (batch_size, output_size), got %dD\n", output_grad->ndim);
-        return NULL;
-    }
-
-    int batch_size = output_grad->shape[0];
-    int output_size = output_grad->shape[1];
-
-    if (batch_size != forward_result->output->shape[0] || output_size != layer->output_size) {
+    if (output_grad->shape[0] != forward_result->output->shape[0] ||
+        output_grad->shape[1] != layer->output_size) {
         printf("Error: Output gradient dimensions don't match\n");
         return NULL;
     }
 
-    // Create input gradient tensor (batch_size, input_size)
-    int input_grad_shape[2] = {batch_size, layer->input_size};
+    size_t batch_size = (size_t)output_grad->shape[0];
+
+    int input_grad_shape[2] = {(int)batch_size, layer->input_size};
     Tensor* input_grad = tensor_create(input_grad_shape, 2);
     if (!input_grad) return NULL;
 
-    // Input gradients are zeroed in input_grad_simd function
+    // Compute weight gradients: dL/dW = input.T @ output_grad
+    if (layer->layer_grad->weight_grad) {
+        const int M = layer->input_size;  // rows of result
+        const int K = batch_size;         // inner dimension
+        const int N = layer->output_size; // cols of result
 
-    // Zero out weight gradients
-    if (layer->layer_grad && layer->layer_grad->weight_grad) {
         memset(layer->layer_grad->weight_grad->data, 0, layer->layer_grad->weight_grad->size * sizeof(float));
-    }
 
-    // Compute gradients using tensor operations
-    // dL/dW = dL/dy.T @ input (gives output_size x input_size)
-    // dL/db = sum(dL/dy, axis=0)
-    // dL/dx = dL/dy @ W.T
+        #pragma omp parallel for schedule(static)
+        for (int k = 0; k < K; ++k) {
+            const float* input_row = &layer->input_cache->data[k * M];
+            const float* grad_row = &output_grad->data[k * N];
 
-    // Weight gradients: output_grad.T @ input
-    tensor_outer_product_accumulate(layer->layer_grad->weight_grad, output_grad, layer->input_cache);
+            for (int m = 0; m < M; ++m) {
+                const float input_val = input_row[m];
+                float* weight_row = &layer->layer_grad->weight_grad->data[m * N];
 
-    // Bias gradients: sum over batch dimension (axis 0)
-    Tensor* bias_grad_tensor = tensor_sum_axis(output_grad, 0);
-    if (bias_grad_tensor) {
-        memcpy(layer->layer_grad->bias_grad->data, bias_grad_tensor->data,
-               layer->layer_grad->bias_grad->size * sizeof(float));
-        tensor_free(bias_grad_tensor);
-    }
+                // Multiply-add across output features
+                __m256 input_broadcast = _mm256_set1_ps(input_val);
 
-    // Input gradients: output_grad @ weights.T
-    // Alternative using BLAS: input_grad = output_grad @ weights.T
-    // input_grad_simd(input_grad->data, output_grad->data, layer->layer_grad->weights->data,
-    //                batch_size, layer->input_size, layer->output_size);
+                int n = 0;
+                for (; n <= N - 8; n += 8) {
+                    __m256 weight_vec = _mm256_loadu_ps(&weight_row[n]);
+                    __m256 grad_vec = _mm256_loadu_ps(&grad_row[n]);
+                    weight_vec = _mm256_fmadd_ps(input_broadcast, grad_vec, weight_vec);
+                    _mm256_storeu_ps(&weight_row[n], weight_vec);
+                }
 
-    // Using tensor operations with transpose
-    Tensor* weights_T = tensor_transpose(layer->layer_grad->weights);
-    if (weights_T) {
-        Tensor* input_grad_tensor = tensor_matmul(output_grad, weights_T);
-        if (input_grad_tensor) {
-            memcpy(input_grad->data, input_grad_tensor->data, input_grad->size * sizeof(float));
-            tensor_free(input_grad_tensor);
+                for (; n < N; ++n) {
+                    weight_row[n] += input_val * grad_row[n];
+                }
+            }
         }
-        tensor_free(weights_T);
     }
 
-    // Create result structure
+    // Bias gradients: sum over batch dimension
+    Tensor* bias_grad_sum = tensor_sum_axis(output_grad, 0);
+    if (bias_grad_sum) {
+        memcpy(layer->layer_grad->bias_grad->data, bias_grad_sum->data,
+               layer->output_size * sizeof(float));
+        tensor_free(bias_grad_sum);
+    }
+    // Input gradients: dL/dx = output_grad @ weights.T
+    const int M = batch_size;       // rows of result
+    const int K = layer->output_size; // inner dimension
+    const int N = layer->input_size;  // cols of result
+
+    #pragma omp parallel for schedule(static)
+    for (int m = 0; m < M; ++m) {
+        const float* grad_row = &output_grad->data[m * K]; // grad_out[m, :]
+        float* input_row = &input_grad->data[m * N];      // dL/dX[m, :]
+
+        // We want: dL/dX[m, n] = sum_k(grad_out[m, k] * W[n, k])
+        for (int n = 0; n < N; ++n) { // Loop over input features (n)
+
+            // Get the pointer to the n-th row of the weight matrix
+            // This is W[n, :], which has length output_size (K)
+            const float* weight_row = &layer->layer_grad->weights->data[n * K];
+
+            float sum = 0.0f;
+            __m256 sum_vec = _mm256_setzero_ps();
+
+            // Perform the dot product
+            int k = 0;
+            for (; k <= K - 8; k += 8) {
+                __m256 grad_vec = _mm256_loadu_ps(&grad_row[k]);
+                __m256 weight_vec = _mm256_loadu_ps(&weight_row[k]);
+                sum_vec = _mm256_fmadd_ps(grad_vec, weight_vec, sum_vec);
+            }
+
+            // Horizontal sum of the AVX register
+            float temp[8];
+            _mm256_storeu_ps(temp, sum_vec);
+            sum = temp[0] + temp[1] + temp[2] + temp[3] +
+                  temp[4] + temp[5] + temp[6] + temp[7];
+
+            for (; k < K; ++k) {
+                sum += grad_row[k] * weight_row[k];
+            }
+
+            input_row[n] = sum;
+        }
+    }
+
     LinearBackwardOutput* result = (LinearBackwardOutput*)malloc(sizeof(LinearBackwardOutput));
     if (!result) {
         tensor_free(input_grad);

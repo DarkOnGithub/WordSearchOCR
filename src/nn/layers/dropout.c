@@ -1,8 +1,28 @@
 #include "nn/layers/dropout.h"
+#include "nn/core/tensor.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
+#include <string.h>
+#include <immintrin.h>  // AVX/AVX2 intrinsics
 #include "nn/core/utils.h"
+
+static inline void dropout_apply_grad_mask(float* __restrict input_grad,
+                                                const float* __restrict output_grad,
+                                                const float* __restrict mask,
+                                                size_t size) {
+    size_t i = 0;
+    for (; i <= size - 8; i += 8) {
+        __m256 grad_vec = _mm256_loadu_ps(&output_grad[i]);
+        __m256 mask_vec = _mm256_loadu_ps(&mask[i]);
+        __m256 result_vec = _mm256_mul_ps(grad_vec, mask_vec);
+        _mm256_storeu_ps(&input_grad[i], result_vec);
+    }
+
+    for (; i < size; ++i) {
+        input_grad[i] = output_grad[i] * mask[i];
+    }
+}
 
 Dropout* dropout_create(float dropout_rate) {
     if (dropout_rate < 0.0f || dropout_rate >= 1.0f) {
@@ -16,6 +36,8 @@ Dropout* dropout_create(float dropout_rate) {
     layer->dropout_rate = dropout_rate;
     layer->training = true;
 
+    srand((unsigned int)time(NULL));
+
     return layer;
 }
 
@@ -24,6 +46,7 @@ void dropout_free(Dropout* layer) {
         free(layer);
     }
 }
+
 
 DropoutOutput* dropout_forward(Dropout* layer, Tensor* input) {
     if (!layer || !input) return NULL;
@@ -40,21 +63,23 @@ DropoutOutput* dropout_forward(Dropout* layer, Tensor* input) {
             return NULL;
         }
 
+        // Generate dropout mask and apply it
         for (int i = 0; i < input->size; ++i) {
             float rand_val = random_float();
             if (rand_val < layer->dropout_rate) {
+                // Drop this neuron
                 mask->data[i] = 0.0f;
                 output->data[i] = 0.0f;
             } else {
+                // Keep this neuron, scale by (1/(1-dropout_rate)) for variance preservation
                 mask->data[i] = 1.0f / (1.0f - layer->dropout_rate);
                 output->data[i] = input->data[i] * mask->data[i];
             }
         }
     } else {
-        float scale = 1.0f - layer->dropout_rate;
-        for (int i = 0; i < input->size; ++i) {
-            output->data[i] = input->data[i] * scale;
-        }
+        // Inference mode or dropout_rate = 0: scale by (1-dropout_rate)
+        memcpy(output->data, input->data, input->size * sizeof(float));
+        tensor_scale_inplace(output, 1.0f - layer->dropout_rate);
     }
 
     DropoutOutput* result = (DropoutOutput*)malloc(sizeof(DropoutOutput));
@@ -82,8 +107,9 @@ DropoutBackwardOutput* dropout_backward(Dropout* layer, DropoutOutput* forward_r
                                        Tensor* output_grad) {
     if (!layer || !forward_result || !forward_result->output || !output_grad) return NULL;
 
-    if (output_grad->shape[0] != forward_result->output->shape[0] ||
-        output_grad->shape[1] != forward_result->output->shape[1]) {
+    if (output_grad->ndim != forward_result->output->ndim ||
+        memcmp(output_grad->shape, forward_result->output->shape,
+               output_grad->ndim * sizeof(int)) != 0) {
         printf("Error: Output gradient dimensions don't match forward output dimensions\n");
         return NULL;
     }
@@ -92,13 +118,13 @@ DropoutBackwardOutput* dropout_backward(Dropout* layer, DropoutOutput* forward_r
     if (!input_grad) return NULL;
 
     if (layer->training && forward_result->mask) {
-        for (int i = 0; i < output_grad->size; i++) {
-            input_grad->data[i] = output_grad->data[i] * forward_result->mask->data[i];
-        }
+        // Training mode: use the dropout mask to route gradients
+        dropout_apply_grad_mask(input_grad->data, output_grad->data,
+                                    forward_result->mask->data, output_grad->size);
     } else {
-        for (int i = 0; i < output_grad->size; i++) {
-            input_grad->data[i] = output_grad->data[i];
-        }
+        // Inference mode or no mask: scale gradients by (1-dropout_rate)
+        memcpy(input_grad->data, output_grad->data, output_grad->size * sizeof(float));
+        tensor_scale_inplace(input_grad, 1.0f - layer->dropout_rate);
     }
 
     DropoutBackwardOutput* result = (DropoutBackwardOutput*)malloc(sizeof(DropoutBackwardOutput));
@@ -113,7 +139,9 @@ DropoutBackwardOutput* dropout_backward(Dropout* layer, DropoutOutput* forward_r
 
 void dropout_backward_output_free(DropoutBackwardOutput* result) {
     if (result) {
-        tensor_free(result->input_grad);
+        if (result->input_grad) tensor_free(result->input_grad);
         free(result);
     }
 }
+
+
