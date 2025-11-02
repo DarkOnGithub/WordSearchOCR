@@ -233,13 +233,13 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
         return NULL;
     }
 
-    // EMNIST Letters dataset should have classes 1-26 (A-Z)
+    // Custom font dataset should have classes 0-25 (A-Z, 0-based indexing)
     // Count valid samples and check class range
-    int min_class = 27, max_class = -1;
+    int min_class = 26, max_class = -1;
     int filtered_count = 0;
     for (int i = 0; i < num_images; i++) {
         int label = (int)label_data[i];
-        if (label >= 1 && label <= 26) {  // uppercase letters A-Z
+        if (label >= 0 && label <= 25) {  // letters A-Z (0-based)
             filtered_count++;
             if (label < min_class) min_class = label;
             if (label > max_class) max_class = label;
@@ -247,7 +247,7 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
     }
 
     printf("Original dataset: %d samples\n", num_images);
-    printf("Filtered dataset (uppercase letters A-Z only): %d samples\n", filtered_count);
+    printf("Filtered dataset (letters A-Z only): %d samples\n", filtered_count);
     printf("Class range: %d-%d\n", min_class, max_class);
 
     if (filtered_count == 0) {
@@ -257,15 +257,15 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
         return NULL;
     }
 
-    // Check that we have exactly 26 classes (A-Z)
-    if (min_class != 1 || max_class != 26) {
-        printf("Error: Expected classes 1-26 (A-Z), but found range %d-%d\n", min_class, max_class);
+    // Check that we have exactly 26 classes (A-Z, 0-based)
+    if (min_class != 0 || max_class != 25) {
+        printf("Error: Expected classes 0-25 (A-Z, 0-based), but found range %d-%d\n", min_class, max_class);
         free(image_data);
         free(label_data);
         return NULL;
     }
 
-    printf("✓ Confirmed: Dataset contains exactly 26 classes (A-Z)\n");
+    printf("✓ Confirmed: Dataset contains exactly 26 classes (A-Z, 0-based)\n");
 
     // Limit samples if max_samples is specified and positive
     int final_sample_count = filtered_count;

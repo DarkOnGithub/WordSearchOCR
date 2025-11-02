@@ -72,7 +72,7 @@ int adam_add_param(Adam* optimizer, Tensor* param, Tensor* grad) {
 }
 
 void adam_step(Adam* optimizer) {
-    if (!optimizer || optimizer->num_params == 0) return;
+    if (!optimizer || optimizer->num_params == 0 || !optimizer->param_states) return;
 
     optimizer->t++;
 
@@ -170,7 +170,7 @@ void adam_step(Adam* optimizer) {
 }
 
 void adam_zero_grad(Adam* optimizer) {
-    if (!optimizer) return;
+    if (!optimizer || !optimizer->param_states) return;
 
     for (int i = 0; i < optimizer->num_params; i++) {
         Tensor* grad = optimizer->param_states[i].grad;

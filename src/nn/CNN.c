@@ -13,6 +13,7 @@ typedef struct timespec TimingType;
 #define INIT_TIMING()
 
 static int timing_initialized = 0;
+static int timing_freq = 1;
 
 //Useful to detect gradient explosion / vanishing
 //!WARNING: DO NOT USE IN PROD
@@ -52,22 +53,31 @@ CNN* cnn_create() {
         return NULL;
     }
 
-    model->conv1 = conv2D_create(1, 32, 3, 1, 1);      // 1->32, 3x3, stride=1, padding=1
-    model->conv2 = conv2D_create(32, 64, 3, 1, 1);     // 32->64, 3x3, stride=1, padding=1
-    model->conv3 = conv2D_create(64, 128, 3, 1, 1);    // 64->128, 3x3, stride=1, padding=1
+    // Block 1: 3x3 -> 1x1
+    model->conv1_3x3 = conv2D_create(1, 32, 3, 1, 1);    // 1->32, 3x3, stride=1, padding=1
+    model->conv1_1x1 = conv2D_create(32, 64, 1, 1, 0);   // 32->64, 1x1, stride=1, padding=0
 
+    // Block 2: 3x3 -> 1x1
+    model->conv2_3x3 = conv2D_create(64, 64, 3, 1, 1);   // 64->64, 3x3, stride=1, padding=1
+    model->conv2_1x1 = conv2D_create(64, 128, 1, 1, 0);  // 64->128, 1x1, stride=1, padding=0
+
+    // Block 3: 3x3 -> 1x1
+    model->conv3_3x3 = conv2D_create(128, 128, 3, 1, 1); // 128->128, 3x3, stride=1, padding=1
+    model->conv3_1x1 = conv2D_create(128, 256, 1, 1, 0); // 128->256, 1x1, stride=1, padding=0
+
+    // Max pooling layers (applied after each block)
     model->pool1 = maxpool2d_create_simple(2, 2);       // 2x2 maxpool
     model->pool2 = maxpool2d_create_simple(2, 2);       // 2x2 maxpool
     model->pool3 = maxpool2d_create_simple(2, 2);       // 2x2 maxpool
 
-    model->dropout_conv1 = dropout2d_create(0.25f);
-    model->dropout_conv2 = dropout2d_create(0.25f);
-    model->dropout_conv3 = dropout2d_create(0.25f);
-    model->dropout_fc = dropout_create(0.5f);
+    // Dropout layers (hybrid rates)
+    model->dropout_conv = dropout2d_create(0.20f);      // 0.20 for conv layers
+    model->dropout_fc = dropout_create(0.45f);          // 0.45 for fc layers
 
-    // After 3 conv+pool blocks: 28->14->7->3, so 128*3*3 = 1152 -> 256 -> 26
-    model->fc1 = linear_create(128 * 3 * 3, 256);
-    model->fc2 = linear_create(256, 26);
+    // Fully connected layers (improved capacity distribution)
+    // After 3 conv+pool+blocks: 28->14->7->3, so 256*3*3 = 2304 -> 128 -> 26
+    model->fc1 = linear_create(256 * 3 * 3, 128);       // Reduced from 256 to 128
+    model->fc2 = linear_create(128, 26);
 
     model->optimizer = NULL;
     model->scheduler = NULL;
@@ -83,22 +93,28 @@ CNN* cnn_create() {
 void cnn_free(CNN* model) {
     if (!model) return;
 
-    conv2D_free(model->conv1);
-    conv2D_free(model->conv2);
-    conv2D_free(model->conv3);
+    // Free convolutional layers
+    conv2D_free(model->conv1_3x3);
+    conv2D_free(model->conv1_1x1);
+    conv2D_free(model->conv2_3x3);
+    conv2D_free(model->conv2_1x1);
+    conv2D_free(model->conv3_3x3);
+    conv2D_free(model->conv3_1x1);
 
+    // Free pooling layers
     maxpool2d_free(model->pool1);
     maxpool2d_free(model->pool2);
     maxpool2d_free(model->pool3);
 
-    dropout2d_free(model->dropout_conv1);
-    dropout2d_free(model->dropout_conv2);
-    dropout2d_free(model->dropout_conv3);
+    // Free dropout layers
+    dropout2d_free(model->dropout_conv);
     dropout_free(model->dropout_fc);
 
+    // Free fully connected layers
     linear_free(model->fc1);
     linear_free(model->fc2);
 
+    // Free training components
     if (model->optimizer) adam_free(model->optimizer);
     if (model->scheduler) step_lr_free(model->scheduler);
     cross_entropy_loss_free(model->criterion);
@@ -108,17 +124,13 @@ void cnn_free(CNN* model) {
 
 void cnn_train(CNN* model) {
     model->training = true;
-    model->dropout_conv1->training = true;
-    model->dropout_conv2->training = true;
-    model->dropout_conv3->training = true;
+    model->dropout_conv->training = true;
     model->dropout_fc->training = true;
 }
 
 void cnn_eval(CNN* model) {
     model->training = false;
-    model->dropout_conv1->training = false;
-    model->dropout_conv2->training = false;
-    model->dropout_conv3->training = false;
+    model->dropout_conv->training = false;
     model->dropout_fc->training = false;
 }
 
@@ -138,23 +150,37 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     }
     result->input = input;
 
+    // Block 1: 3x3 -> 1x1
     GET_TIME(start_op);
-    result->conv1_out = conv2D_forward(model->conv1, input);
+    result->conv1_3x3_out = conv2D_forward(model->conv1_3x3, input);
     GET_TIME(end_op);
-    check_gradients("Forward - Conv1 output", result->conv1_out);
     if (model->timing_verbose) {
-        printf("Forward - Conv1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Conv1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
     GET_TIME(start_op);
-    result->relu1 = relu(result->conv1_out);
+    result->relu1_3x3 = relu(result->conv1_3x3_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - ReLU1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - ReLU1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
     GET_TIME(start_op);
-    MaxPool2DOutput* pool1_result = maxpool2d_forward(model->pool1, result->relu1);
+    result->conv1_1x1_out = conv2D_forward(model->conv1_1x1, result->relu1_3x3);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Forward - Conv1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    GET_TIME(start_op);
+    result->relu1_1x1 = relu(result->conv1_1x1_out);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Forward - ReLU1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    GET_TIME(start_op);
+    MaxPool2DOutput* pool1_result = maxpool2d_forward(model->pool1, result->relu1_1x1);
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Forward - Pool1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
@@ -163,7 +189,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->pool1_out = pool1_result->output;
 
     GET_TIME(start_op);
-    Dropout2DOutput* dropout1_result = dropout2d_forward(model->dropout_conv1, result->pool1_out);
+    Dropout2DOutput* dropout1_result = dropout2d_forward(model->dropout_conv, result->pool1_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Forward - Dropout1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
@@ -171,22 +197,37 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->dropout1_result = dropout1_result;
     result->dropout1_out = dropout1_result->output;
 
+    // Block 2: 3x3 -> 1x1
     GET_TIME(start_op);
-    result->conv2_out = conv2D_forward(model->conv2, result->dropout1_out);
+    result->conv2_3x3_out = conv2D_forward(model->conv2_3x3, result->dropout1_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Conv2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Conv2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
     GET_TIME(start_op);
-    result->relu2 = relu(result->conv2_out);
+    result->relu2_3x3 = relu(result->conv2_3x3_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - ReLU2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - ReLU2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
     GET_TIME(start_op);
-    MaxPool2DOutput* pool2_result = maxpool2d_forward(model->pool2, result->relu2);
+    result->conv2_1x1_out = conv2D_forward(model->conv2_1x1, result->relu2_3x3);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Forward - Conv2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    GET_TIME(start_op);
+    result->relu2_1x1 = relu(result->conv2_1x1_out);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Forward - ReLU2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    GET_TIME(start_op);
+    MaxPool2DOutput* pool2_result = maxpool2d_forward(model->pool2, result->relu2_1x1);
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Forward - Pool2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
@@ -195,7 +236,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->pool2_out = pool2_result->output;
 
     GET_TIME(start_op);
-    Dropout2DOutput* dropout2_result = dropout2d_forward(model->dropout_conv2, result->pool2_out);
+    Dropout2DOutput* dropout2_result = dropout2d_forward(model->dropout_conv, result->pool2_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Forward - Dropout2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
@@ -203,22 +244,37 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->dropout2_result = dropout2_result;
     result->dropout2_out = dropout2_result->output;
 
+    // Block 3: 3x3 -> 1x1
     GET_TIME(start_op);
-    result->conv3_out = conv2D_forward(model->conv3, result->dropout2_out);
+    result->conv3_3x3_out = conv2D_forward(model->conv3_3x3, result->dropout2_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Conv3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Conv3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
     GET_TIME(start_op);
-    result->relu3 = relu(result->conv3_out);
+    result->relu3_3x3 = relu(result->conv3_3x3_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - ReLU3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - ReLU3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
     GET_TIME(start_op);
-    MaxPool2DOutput* pool3_result = maxpool2d_forward(model->pool3, result->relu3);
+    result->conv3_1x1_out = conv2D_forward(model->conv3_1x1, result->relu3_3x3);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Forward - Conv3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    GET_TIME(start_op);
+    result->relu3_1x1 = relu(result->conv3_1x1_out);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Forward - ReLU3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    GET_TIME(start_op);
+    MaxPool2DOutput* pool3_result = maxpool2d_forward(model->pool3, result->relu3_1x1);
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Forward - Pool3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
@@ -227,7 +283,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->pool3_out = pool3_result->output;
 
     GET_TIME(start_op);
-    Dropout2DOutput* dropout3_result = dropout2d_forward(model->dropout_conv3, result->pool3_out);
+    Dropout2DOutput* dropout3_result = dropout2d_forward(model->dropout_conv, result->pool3_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Forward - Dropout3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
@@ -235,6 +291,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->dropout3_result = dropout3_result;
     result->dropout3_out = dropout3_result->output;
 
+    // Flatten
     GET_TIME(start_op);
     int flattened_shape[] = {result->dropout3_out->shape[0],
                              result->dropout3_out->shape[1] * result->dropout3_out->shape[2] * result->dropout3_out->shape[3]};
@@ -246,6 +303,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
         printf("Forward - Flatten: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // FC layers with improved capacity
     GET_TIME(start_op);
     LinearOutput* fc1_result = linear_forward(model->fc1, result->flattened);
     GET_TIME(end_op);
@@ -292,18 +350,31 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
 void cnn_forward_result_free(CNNForwardResult* result) {
     if (!result) return;
 
-    tensor_free(result->conv1_out);
-    tensor_free(result->relu1);
+    // Free Block 1 outputs
+    tensor_free(result->conv1_3x3_out);
+    tensor_free(result->relu1_3x3);
+    tensor_free(result->conv1_1x1_out);
+    tensor_free(result->relu1_1x1);
     maxpool2d_output_free(result->pool1_result);
     dropout2d_output_free(result->dropout1_result);
-    tensor_free(result->conv2_out);
-    tensor_free(result->relu2);
+
+    // Free Block 2 outputs
+    tensor_free(result->conv2_3x3_out);
+    tensor_free(result->relu2_3x3);
+    tensor_free(result->conv2_1x1_out);
+    tensor_free(result->relu2_1x1);
     maxpool2d_output_free(result->pool2_result);
     dropout2d_output_free(result->dropout2_result);
-    tensor_free(result->conv3_out);
-    tensor_free(result->relu3);
+
+    // Free Block 3 outputs
+    tensor_free(result->conv3_3x3_out);
+    tensor_free(result->relu3_3x3);
+    tensor_free(result->conv3_1x1_out);
+    tensor_free(result->relu3_1x1);
     maxpool2d_output_free(result->pool3_result);
     dropout2d_output_free(result->dropout3_result);
+
+    // Free FC layers
     tensor_free(result->flattened);
     if (result->fc1_result) {
         result->fc1_result->output = NULL;
@@ -340,6 +411,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
         printf("Backward - Loss: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // FC2 backward
     GET_TIME(start_op);
     LinearBackwardOutput* fc2_back = linear_backward(model->fc2, forward_result->fc2_result, output_grad);
     Tensor* fc2_input_grad = fc2_back->input_grad;
@@ -351,6 +423,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
         printf("Backward - FC2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // Dropout FC backward
     GET_TIME(start_op);
     DropoutBackwardOutput* dropout_fc_back = dropout_backward(model->dropout_fc, forward_result->dropout_fc_result, fc2_input_grad);
     Tensor* dropout_fc_input_grad = dropout_fc_back->input_grad;
@@ -362,30 +435,32 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
         printf("Backward - Dropout_FC: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // ReLU FC1 backward
     GET_TIME(start_op);
-    Tensor* relu1_grad = relu_grad(forward_result->relu1_out, dropout_fc_input_grad);
+    Tensor* relu_fc1_grad = relu_grad(forward_result->relu1_out, dropout_fc_input_grad);
     tensor_free(dropout_fc_input_grad);
-    check_gradients("ReLU FC1 backward", relu1_grad);
+    check_gradients("ReLU FC1 backward", relu_fc1_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Backward - ReLU_FC1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // FC1 backward
     GET_TIME(start_op);
-    LinearBackwardOutput* fc1_back = linear_backward(model->fc1, forward_result->fc1_result, relu1_grad);
+    LinearBackwardOutput* fc1_back = linear_backward(model->fc1, forward_result->fc1_result, relu_fc1_grad);
     Tensor* fc1_input_grad = fc1_back->input_grad;
     fc1_back->input_grad = NULL;
     linear_backward_output_free(fc1_back);
-    tensor_free(relu1_grad);
+    tensor_free(relu_fc1_grad);
     check_gradients("FC1 backward", fc1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Backward - FC1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
-    // Reshape fc1 input gradient back to original conv shape [batch_size, 128, 3, 3]
+    // Reshape fc1 input gradient back to original conv shape [batch_size, 256, 3, 3]
     GET_TIME(start_op);
-    int reshape_shape[] = {fc1_input_grad->shape[0], 128, 3, 3};
+    int reshape_shape[] = {fc1_input_grad->shape[0], 256, 3, 3};
     Tensor* reshaped_fc1_grad = tensor_create(reshape_shape, 4);
     if (!reshaped_fc1_grad) {
         fprintf(stderr, "Failed to reshape fc1 gradient\n");
@@ -398,8 +473,9 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
         printf("Backward - Reshape: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // Dropout3 backward
     GET_TIME(start_op);
-    Dropout2DBackwardOutput* dropout3_back = dropout2d_backward(model->dropout_conv3, forward_result->dropout3_result, reshaped_fc1_grad);
+    Dropout2DBackwardOutput* dropout3_back = dropout2d_backward(model->dropout_conv, forward_result->dropout3_result, reshaped_fc1_grad);
     if (!dropout3_back) {
         fprintf(stderr, "dropout2d_backward failed\n");
         return NULL;
@@ -414,6 +490,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
         printf("Backward - Dropout3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // Pool3 backward
     GET_TIME(start_op);
     MaxPool2DBackwardOutput* pool3_back = maxpool2d_backward(model->pool3, forward_result->pool3_result, dropout3_input_grad);
     Tensor* pool3_input_grad = pool3_back->input_grad;
@@ -426,36 +503,68 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
         printf("Backward - Pool3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // ReLU3_1x1 backward
     GET_TIME(start_op);
-    Tensor* relu3_grad = relu_grad(forward_result->relu3, pool3_input_grad);
+    Tensor* relu3_1x1_grad = relu_grad(forward_result->relu3_1x1, pool3_input_grad);
     tensor_free(pool3_input_grad);
-    check_gradients("ReLU3 backward", relu3_grad);
+    check_gradients("ReLU3_1x1 backward", relu3_1x1_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - ReLU3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - ReLU3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // Conv3_1x1 backward
     GET_TIME(start_op);
-    Tensor* conv3_input_grad = conv2D_backward(model->conv3, forward_result->dropout2_out, relu3_grad);
-    tensor_free(relu3_grad);
-    check_gradients("Conv3 backward", conv3_input_grad);
+    Tensor* conv3_1x1_input_grad = conv2D_backward(model->conv3_1x1, forward_result->relu3_3x3, relu3_1x1_grad);
+    tensor_free(relu3_1x1_grad);
+    if (!conv3_1x1_input_grad) {
+        fprintf(stderr, "Conv3_1x1 backward failed\n");
+        return NULL;
+    }
+    check_gradients("Conv3_1x1 backward", conv3_1x1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Conv3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Conv3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // ReLU3_3x3 backward
     GET_TIME(start_op);
-    Dropout2DBackwardOutput* dropout2_back = dropout2d_backward(model->dropout_conv2, forward_result->dropout2_result, conv3_input_grad);
+    Tensor* relu3_3x3_grad = relu_grad(forward_result->relu3_3x3, conv3_1x1_input_grad);
+    tensor_free(conv3_1x1_input_grad);
+    check_gradients("ReLU3_3x3 backward", relu3_3x3_grad);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Backward - ReLU3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    // Conv3_3x3 backward
+    GET_TIME(start_op);
+    Tensor* conv3_3x3_input_grad = conv2D_backward(model->conv3_3x3, forward_result->dropout2_out, relu3_3x3_grad);
+    tensor_free(relu3_3x3_grad);
+    if (!conv3_3x3_input_grad) {
+        fprintf(stderr, "Conv3_3x3 backward failed\n");
+        return NULL;
+    }
+    check_gradients("Conv3_3x3 backward", conv3_3x3_input_grad);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Backward - Conv3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    // Dropout2 backward
+    GET_TIME(start_op);
+    Dropout2DBackwardOutput* dropout2_back = dropout2d_backward(model->dropout_conv, forward_result->dropout2_result, conv3_3x3_input_grad);
     Tensor* dropout2_input_grad = dropout2_back->input_grad;
     dropout2_back->input_grad = NULL;
     dropout2d_backward_output_free(dropout2_back);
-    tensor_free(conv3_input_grad);
+    tensor_free(conv3_3x3_input_grad);
     check_gradients("Dropout2 backward", dropout2_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Backward - Dropout2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // Pool2 backward
     GET_TIME(start_op);
     MaxPool2DBackwardOutput* pool2_back = maxpool2d_backward(model->pool2, forward_result->pool2_result, dropout2_input_grad);
     Tensor* pool2_input_grad = pool2_back->input_grad;
@@ -468,36 +577,68 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
         printf("Backward - Pool2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // ReLU2_1x1 backward
     GET_TIME(start_op);
-    Tensor* relu2_grad = relu_grad(forward_result->relu2, pool2_input_grad);
+    Tensor* relu2_1x1_grad = relu_grad(forward_result->relu2_1x1, pool2_input_grad);
     tensor_free(pool2_input_grad);
-    check_gradients("ReLU2 backward", relu2_grad);
+    check_gradients("ReLU2_1x1 backward", relu2_1x1_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - ReLU2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - ReLU2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // Conv2_1x1 backward
     GET_TIME(start_op);
-    Tensor* conv2_input_grad = conv2D_backward(model->conv2, forward_result->dropout1_out, relu2_grad);
-    tensor_free(relu2_grad);
-    check_gradients("Conv2 backward", conv2_input_grad);
+    Tensor* conv2_1x1_input_grad = conv2D_backward(model->conv2_1x1, forward_result->relu2_3x3, relu2_1x1_grad);
+    tensor_free(relu2_1x1_grad);
+    if (!conv2_1x1_input_grad) {
+        fprintf(stderr, "Conv2_1x1 backward failed\n");
+        return NULL;
+    }
+    check_gradients("Conv2_1x1 backward", conv2_1x1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Conv2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Conv2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // ReLU2_3x3 backward
     GET_TIME(start_op);
-    Dropout2DBackwardOutput* dropout1_back = dropout2d_backward(model->dropout_conv1, forward_result->dropout1_result, conv2_input_grad);
+    Tensor* relu2_3x3_grad = relu_grad(forward_result->relu2_3x3, conv2_1x1_input_grad);
+    tensor_free(conv2_1x1_input_grad);
+    check_gradients("ReLU2_3x3 backward", relu2_3x3_grad);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Backward - ReLU2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    // Conv2_3x3 backward
+    GET_TIME(start_op);
+    Tensor* conv2_3x3_input_grad = conv2D_backward(model->conv2_3x3, forward_result->dropout1_out, relu2_3x3_grad);
+    tensor_free(relu2_3x3_grad);
+    if (!conv2_3x3_input_grad) {
+        fprintf(stderr, "Conv2_3x3 backward failed\n");
+        return NULL;
+    }
+    check_gradients("Conv2_3x3 backward", conv2_3x3_input_grad);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Backward - Conv2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    // Dropout1 backward
+    GET_TIME(start_op);
+    Dropout2DBackwardOutput* dropout1_back = dropout2d_backward(model->dropout_conv, forward_result->dropout1_result, conv2_3x3_input_grad);
     Tensor* dropout1_input_grad = dropout1_back->input_grad;
     dropout1_back->input_grad = NULL;
     dropout2d_backward_output_free(dropout1_back);
-    tensor_free(conv2_input_grad);
+    tensor_free(conv2_3x3_input_grad);
     check_gradients("Dropout1 backward", dropout1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Backward - Dropout1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // Pool1 backward
     GET_TIME(start_op);
     MaxPool2DBackwardOutput* pool1_back = maxpool2d_backward(model->pool1, forward_result->pool1_result, dropout1_input_grad);
     Tensor* pool1_input_grad = pool1_back->input_grad;
@@ -510,22 +651,52 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
         printf("Backward - Pool1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // ReLU1_1x1 backward
     GET_TIME(start_op);
-    Tensor* relu1_grad_final = relu_grad(forward_result->relu1, pool1_input_grad);
+    Tensor* relu1_1x1_grad = relu_grad(forward_result->relu1_1x1, pool1_input_grad);
     tensor_free(pool1_input_grad);
-    check_gradients("ReLU1 backward", relu1_grad_final);
+    check_gradients("ReLU1_1x1 backward", relu1_1x1_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - ReLU1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - ReLU1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
+    // Conv1_1x1 backward
     GET_TIME(start_op);
-    Tensor* input_grad = conv2D_backward(model->conv1, forward_result->input, relu1_grad_final);
-    tensor_free(relu1_grad_final);
-    check_gradients("Conv1 backward", input_grad);
+    Tensor* conv1_1x1_input_grad = conv2D_backward(model->conv1_1x1, forward_result->relu1_3x3, relu1_1x1_grad);
+    tensor_free(relu1_1x1_grad);
+    if (!conv1_1x1_input_grad) {
+        fprintf(stderr, "Conv1_1x1 backward failed\n");
+        return NULL;
+    }
+    check_gradients("Conv1_1x1 backward", conv1_1x1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Conv1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Conv1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    // ReLU1_3x3 backward
+    GET_TIME(start_op);
+    Tensor* relu1_3x3_grad = relu_grad(forward_result->relu1_3x3, conv1_1x1_input_grad);
+    tensor_free(conv1_1x1_input_grad);
+    check_gradients("ReLU1_3x3 backward", relu1_3x3_grad);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Backward - ReLU1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+    }
+
+    // Conv1_3x3 backward
+    GET_TIME(start_op);
+    Tensor* input_grad = conv2D_backward(model->conv1_3x3, forward_result->input, relu1_3x3_grad);
+    tensor_free(relu1_3x3_grad);
+    if (!input_grad) {
+        fprintf(stderr, "Conv1_3x3 backward failed\n");
+        return NULL;
+    }
+    check_gradients("Conv1_3x3 backward", input_grad);
+    GET_TIME(end_op);
+    if (model->timing_verbose) {
+        printf("Backward - Conv1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
     }
 
     GET_TIME(end_total);
@@ -560,10 +731,14 @@ float cnn_training_step(CNN* model, CNNForwardResult* forward_result, Tensor* ta
     }
 
     adam_zero_grad(model->optimizer);
-
     GET_TIME(start_op);
     Tensor* input_grad = cnn_backward(model, forward_result, loss_result);
-    if (input_grad) tensor_free(input_grad);
+    if (!input_grad) {
+        fprintf(stderr, "Backward pass failed\n");
+        cross_entropy_result_free(loss_result);
+        return 0.0f;
+    }
+    tensor_free(input_grad);
     GET_TIME(end_op);
 
 
@@ -582,7 +757,6 @@ float cnn_training_step(CNN* model, CNNForwardResult* forward_result, Tensor* ta
     }
 
     cross_entropy_result_free(loss_result);
-
     return loss;
 }
 
@@ -626,31 +800,53 @@ void cnn_step_scheduler(CNN* model) {
 }
 
 int cnn_get_parameters(CNN* model, Tensor*** params, Tensor*** grads) {
-    int num_params = 10;
+    int num_params = 16;  // 6 conv layers * 2 + 2 fc layers * 2 = 16
 
     *params = (Tensor**)malloc(num_params * sizeof(Tensor*));
     *grads = (Tensor**)malloc(num_params * sizeof(Tensor*));
 
     int idx = 0;
 
-    (*params)[idx] = model->conv1->weight;
-    (*grads)[idx++] = model->conv1->weight_grad;
+    // Block 1 convolutional layers
+    (*params)[idx] = model->conv1_3x3->weight;
+    (*grads)[idx++] = model->conv1_3x3->weight_grad;
 
-    (*params)[idx] = model->conv1->bias;
-    (*grads)[idx++] = model->conv1->bias_grad;
+    (*params)[idx] = model->conv1_3x3->bias;
+    (*grads)[idx++] = model->conv1_3x3->bias_grad;
 
-    (*params)[idx] = model->conv2->weight;
-    (*grads)[idx++] = model->conv2->weight_grad;
+    (*params)[idx] = model->conv1_1x1->weight;
+    (*grads)[idx++] = model->conv1_1x1->weight_grad;
 
-    (*params)[idx] = model->conv2->bias;
-    (*grads)[idx++] = model->conv2->bias_grad;
+    (*params)[idx] = model->conv1_1x1->bias;
+    (*grads)[idx++] = model->conv1_1x1->bias_grad;
 
-    (*params)[idx] = model->conv3->weight;
-    (*grads)[idx++] = model->conv3->weight_grad;
+    // Block 2 convolutional layers
+    (*params)[idx] = model->conv2_3x3->weight;
+    (*grads)[idx++] = model->conv2_3x3->weight_grad;
 
-    (*params)[idx] = model->conv3->bias;
-    (*grads)[idx++] = model->conv3->bias_grad;
+    (*params)[idx] = model->conv2_3x3->bias;
+    (*grads)[idx++] = model->conv2_3x3->bias_grad;
 
+    (*params)[idx] = model->conv2_1x1->weight;
+    (*grads)[idx++] = model->conv2_1x1->weight_grad;
+
+    (*params)[idx] = model->conv2_1x1->bias;
+    (*grads)[idx++] = model->conv2_1x1->bias_grad;
+
+    // Block 3 convolutional layers
+    (*params)[idx] = model->conv3_3x3->weight;
+    (*grads)[idx++] = model->conv3_3x3->weight_grad;
+
+    (*params)[idx] = model->conv3_3x3->bias;
+    (*grads)[idx++] = model->conv3_3x3->bias_grad;
+
+    (*params)[idx] = model->conv3_1x1->weight;
+    (*grads)[idx++] = model->conv3_1x1->weight_grad;
+
+    (*params)[idx] = model->conv3_1x1->bias;
+    (*grads)[idx++] = model->conv3_1x1->bias_grad;
+
+    // Fully connected layers
     (*params)[idx] = model->fc1->layer_grad->weights;
     (*grads)[idx++] = model->fc1->layer_grad->weight_grad;
 
@@ -667,32 +863,47 @@ int cnn_get_parameters(CNN* model, Tensor*** params, Tensor*** grads) {
 }
 
 int cnn_load_weights(CNN* model, int epoch) {
-    char conv1_weight_path[256];
-    char conv1_bias_path[256];
-    char conv2_weight_path[256];
-    char conv2_bias_path[256];
-    char conv3_weight_path[256];
-    char conv3_bias_path[256];
+    char conv1_3x3_weight_path[256];
+    char conv1_3x3_bias_path[256];
+    char conv1_1x1_weight_path[256];
+    char conv1_1x1_bias_path[256];
+    char conv2_3x3_weight_path[256];
+    char conv2_3x3_bias_path[256];
+    char conv2_1x1_weight_path[256];
+    char conv2_1x1_bias_path[256];
+    char conv3_3x3_weight_path[256];
+    char conv3_3x3_bias_path[256];
+    char conv3_1x1_weight_path[256];
+    char conv3_1x1_bias_path[256];
     char fc1_weight_path[256];
     char fc1_bias_path[256];
     char fc2_weight_path[256];
     char fc2_bias_path[256];
 
-    sprintf(conv1_weight_path, "weights/conv1_weight_epoch_%d.bin", epoch);
-    sprintf(conv1_bias_path, "weights/conv1_bias_epoch_%d.bin", epoch);
-    sprintf(conv2_weight_path, "weights/conv2_weight_epoch_%d.bin", epoch);
-    sprintf(conv2_bias_path, "weights/conv2_bias_epoch_%d.bin", epoch);
-    sprintf(conv3_weight_path, "weights/conv3_weight_epoch_%d.bin", epoch);
-    sprintf(conv3_bias_path, "weights/conv3_bias_epoch_%d.bin", epoch);
+    sprintf(conv1_3x3_weight_path, "weights/conv1_3x3_weight_epoch_%d.bin", epoch);
+    sprintf(conv1_3x3_bias_path, "weights/conv1_3x3_bias_epoch_%d.bin", epoch);
+    sprintf(conv1_1x1_weight_path, "weights/conv1_1x1_weight_epoch_%d.bin", epoch);
+    sprintf(conv1_1x1_bias_path, "weights/conv1_1x1_bias_epoch_%d.bin", epoch);
+    sprintf(conv2_3x3_weight_path, "weights/conv2_3x3_weight_epoch_%d.bin", epoch);
+    sprintf(conv2_3x3_bias_path, "weights/conv2_3x3_bias_epoch_%d.bin", epoch);
+    sprintf(conv2_1x1_weight_path, "weights/conv2_1x1_weight_epoch_%d.bin", epoch);
+    sprintf(conv2_1x1_bias_path, "weights/conv2_1x1_bias_epoch_%d.bin", epoch);
+    sprintf(conv3_3x3_weight_path, "weights/conv3_3x3_weight_epoch_%d.bin", epoch);
+    sprintf(conv3_3x3_bias_path, "weights/conv3_3x3_bias_epoch_%d.bin", epoch);
+    sprintf(conv3_1x1_weight_path, "weights/conv3_1x1_weight_epoch_%d.bin", epoch);
+    sprintf(conv3_1x1_bias_path, "weights/conv3_1x1_bias_epoch_%d.bin", epoch);
     sprintf(fc1_weight_path, "weights/fc1_weight_epoch_%d.bin", epoch);
     sprintf(fc1_bias_path, "weights/fc1_bias_epoch_%d.bin", epoch);
     sprintf(fc2_weight_path, "weights/fc2_weight_epoch_%d.bin", epoch);
     sprintf(fc2_bias_path, "weights/fc2_bias_epoch_%d.bin", epoch);
 
     return cnn_load_weights_from_files(model,
-                                             conv1_weight_path, conv1_bias_path,
-                                             conv2_weight_path, conv2_bias_path,
-                                             conv3_weight_path, conv3_bias_path,
+                                             conv1_3x3_weight_path, conv1_3x3_bias_path,
+                                             conv1_1x1_weight_path, conv1_1x1_bias_path,
+                                             conv2_3x3_weight_path, conv2_3x3_bias_path,
+                                             conv2_1x1_weight_path, conv2_1x1_bias_path,
+                                             conv3_3x3_weight_path, conv3_3x3_bias_path,
+                                             conv3_1x1_weight_path, conv3_1x1_bias_path,
                                              fc1_weight_path, fc1_bias_path,
                                              fc2_weight_path, fc2_bias_path);
 }
@@ -716,25 +927,37 @@ static int load_tensor_from_file(const char* filepath, Tensor* tensor, const cha
 }
 
 int cnn_load_weights_from_files(CNN* model,
-                                       const char* conv1_weight_path,
-                                       const char* conv1_bias_path,
-                                       const char* conv2_weight_path,
-                                       const char* conv2_bias_path,
-                                       const char* conv3_weight_path,
-                                       const char* conv3_bias_path,
+                                       const char* conv1_3x3_weight_path,
+                                       const char* conv1_3x3_bias_path,
+                                       const char* conv1_1x1_weight_path,
+                                       const char* conv1_1x1_bias_path,
+                                       const char* conv2_3x3_weight_path,
+                                       const char* conv2_3x3_bias_path,
+                                       const char* conv2_1x1_weight_path,
+                                       const char* conv2_1x1_bias_path,
+                                       const char* conv3_3x3_weight_path,
+                                       const char* conv3_3x3_bias_path,
+                                       const char* conv3_1x1_weight_path,
+                                       const char* conv3_1x1_bias_path,
                                        const char* fc1_weight_path,
                                        const char* fc1_bias_path,
                                        const char* fc2_weight_path,
                                        const char* fc2_bias_path) {
 
-    if (!load_tensor_from_file(conv1_weight_path, model->conv1->weight, "conv1 weights")) return 0;
-    if (!load_tensor_from_file(conv1_bias_path, model->conv1->bias, "conv1 bias")) return 0;
+    if (!load_tensor_from_file(conv1_3x3_weight_path, model->conv1_3x3->weight, "conv1_3x3 weights")) return 0;
+    if (!load_tensor_from_file(conv1_3x3_bias_path, model->conv1_3x3->bias, "conv1_3x3 bias")) return 0;
+    if (!load_tensor_from_file(conv1_1x1_weight_path, model->conv1_1x1->weight, "conv1_1x1 weights")) return 0;
+    if (!load_tensor_from_file(conv1_1x1_bias_path, model->conv1_1x1->bias, "conv1_1x1 bias")) return 0;
 
-    if (!load_tensor_from_file(conv2_weight_path, model->conv2->weight, "conv2 weights")) return 0;
-    if (!load_tensor_from_file(conv2_bias_path, model->conv2->bias, "conv2 bias")) return 0;
+    if (!load_tensor_from_file(conv2_3x3_weight_path, model->conv2_3x3->weight, "conv2_3x3 weights")) return 0;
+    if (!load_tensor_from_file(conv2_3x3_bias_path, model->conv2_3x3->bias, "conv2_3x3 bias")) return 0;
+    if (!load_tensor_from_file(conv2_1x1_weight_path, model->conv2_1x1->weight, "conv2_1x1 weights")) return 0;
+    if (!load_tensor_from_file(conv2_1x1_bias_path, model->conv2_1x1->bias, "conv2_1x1 bias")) return 0;
 
-    if (!load_tensor_from_file(conv3_weight_path, model->conv3->weight, "conv3 weights")) return 0;
-    if (!load_tensor_from_file(conv3_bias_path, model->conv3->bias, "conv3 bias")) return 0;
+    if (!load_tensor_from_file(conv3_3x3_weight_path, model->conv3_3x3->weight, "conv3_3x3 weights")) return 0;
+    if (!load_tensor_from_file(conv3_3x3_bias_path, model->conv3_3x3->bias, "conv3_3x3 bias")) return 0;
+    if (!load_tensor_from_file(conv3_1x1_weight_path, model->conv3_1x1->weight, "conv3_1x1 weights")) return 0;
+    if (!load_tensor_from_file(conv3_1x1_bias_path, model->conv3_1x1->bias, "conv3_1x1 bias")) return 0;
 
     if (!load_tensor_from_file(fc1_weight_path, model->fc1->layer_grad->weights, "fc1 weights")) return 0;
     if (!load_tensor_from_file(fc1_bias_path, model->fc1->layer_grad->biases, "fc1 bias")) return 0;

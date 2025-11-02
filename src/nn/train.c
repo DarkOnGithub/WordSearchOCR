@@ -10,7 +10,7 @@
 #include "image/image.h"
 
 // Simple progress bar function (tqdm-like)
-void print_progress_bar(int current, int total, const char* prefix, float loss, float acc, float time_per_batch) {
+void print_progress_bar(int current, int total, const char* prefix, float loss, float acc, float time_per_batch, float total_elapsed_time) {
     const int bar_width = 30;
     float progress = (float)current / total;
     int filled_width = (int)(progress * bar_width);
@@ -24,9 +24,30 @@ void print_progress_bar(int current, int total, const char* prefix, float loss, 
     bar[bar_width + 1] = ']';
     bar[bar_width + 2] = '\0';
 
-    // Print progress bar with metrics
-    printf("\r%s %s %.1f%% (%d/%d) - Loss: %.4f - Acc: %.2f%% - %.2fms/batch",
-           prefix, bar, progress * 100, current, total, loss, acc, time_per_batch);
+    // Calculate ETA (Estimated Time of Arrival)
+    char eta_str[32] = "";
+    if (current > 0 && current < total) {
+        float avg_time_per_batch = total_elapsed_time / current;
+        float remaining_batches = total - current;
+        float eta_seconds = remaining_batches * avg_time_per_batch;
+
+        // Format ETA
+        if (eta_seconds < 60) {
+            sprintf(eta_str, " - ETA: %.0fs", eta_seconds);
+        } else if (eta_seconds < 3600) {
+            int minutes = (int)(eta_seconds / 60);
+            int seconds = (int)(eta_seconds) % 60;
+            sprintf(eta_str, " - ETA: %dm%ds", minutes, seconds);
+        } else {
+            int hours = (int)(eta_seconds / 3600);
+            int minutes = (int)((eta_seconds - hours * 3600) / 60);
+            sprintf(eta_str, " - ETA: %dh%dm", hours, minutes);
+        }
+    }
+
+    // Print progress bar with metrics and ETA
+    printf("\r%s %s %.1f%% (%d/%d) - Loss: %.4f - Acc: %.2f%% - %.2fms/batch%s",
+           prefix, bar, progress * 100, current, total, loss, acc, time_per_batch, eta_str);
     fflush(stdout);
 
     // New line when complete
@@ -60,48 +81,93 @@ void save_model_weights(CNN* model, int epoch) {
 
     char filename[256];
 
-    // Save conv1 weights and bias
-    sprintf(filename, "weights/conv1_weight_epoch_%d.bin", epoch);
+    // Save conv1_3x3 weights and bias
+    sprintf(filename, "weights/conv1_3x3_weight_epoch_%d.bin", epoch);
     FILE* f = fopen(filename, "wb");
     if (f) {
-        fwrite(model->conv1->weight->data, sizeof(float), model->conv1->weight->size, f);
+        fwrite(model->conv1_3x3->weight->data, sizeof(float), model->conv1_3x3->weight->size, f);
         fclose(f);
     }
 
-    sprintf(filename, "weights/conv1_bias_epoch_%d.bin", epoch);
+    sprintf(filename, "weights/conv1_3x3_bias_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
-        fwrite(model->conv1->bias->data, sizeof(float), model->conv1->bias->size, f);
+        fwrite(model->conv1_3x3->bias->data, sizeof(float), model->conv1_3x3->bias->size, f);
         fclose(f);
     }
 
-    // Save conv2 weights and bias
-    sprintf(filename, "weights/conv2_weight_epoch_%d.bin", epoch);
+    // Save conv1_1x1 weights and bias
+    sprintf(filename, "weights/conv1_1x1_weight_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
-        fwrite(model->conv2->weight->data, sizeof(float), model->conv2->weight->size, f);
+        fwrite(model->conv1_1x1->weight->data, sizeof(float), model->conv1_1x1->weight->size, f);
         fclose(f);
     }
 
-    sprintf(filename, "weights/conv2_bias_epoch_%d.bin", epoch);
+    sprintf(filename, "weights/conv1_1x1_bias_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
-        fwrite(model->conv2->bias->data, sizeof(float), model->conv2->bias->size, f);
+        fwrite(model->conv1_1x1->bias->data, sizeof(float), model->conv1_1x1->bias->size, f);
         fclose(f);
     }
 
-    // Save conv3 weights and bias
-    sprintf(filename, "weights/conv3_weight_epoch_%d.bin", epoch);
+    // Save conv2_3x3 weights and bias
+    sprintf(filename, "weights/conv2_3x3_weight_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
-        fwrite(model->conv3->weight->data, sizeof(float), model->conv3->weight->size, f);
+        fwrite(model->conv2_3x3->weight->data, sizeof(float), model->conv2_3x3->weight->size, f);
         fclose(f);
     }
 
-    sprintf(filename, "weights/conv3_bias_epoch_%d.bin", epoch);
+    sprintf(filename, "weights/conv2_3x3_bias_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
-        fwrite(model->conv3->bias->data, sizeof(float), model->conv3->bias->size, f);
+        fwrite(model->conv2_3x3->bias->data, sizeof(float), model->conv2_3x3->bias->size, f);
+        fclose(f);
+    }
+
+    // Save conv2_1x1 weights and bias
+    sprintf(filename, "weights/conv2_1x1_weight_epoch_%d.bin", epoch);
+    f = fopen(filename, "wb");
+    if (f) {
+        fwrite(model->conv2_1x1->weight->data, sizeof(float), model->conv2_1x1->weight->size, f);
+        fclose(f);
+    }
+
+    sprintf(filename, "weights/conv2_1x1_bias_epoch_%d.bin", epoch);
+    f = fopen(filename, "wb");
+    if (f) {
+        fwrite(model->conv2_1x1->bias->data, sizeof(float), model->conv2_1x1->bias->size, f);
+        fclose(f);
+    }
+
+    // Save conv3_3x3 weights and bias
+    sprintf(filename, "weights/conv3_3x3_weight_epoch_%d.bin", epoch);
+    f = fopen(filename, "wb");
+    if (f) {
+        fwrite(model->conv3_3x3->weight->data, sizeof(float), model->conv3_3x3->weight->size, f);
+        fclose(f);
+    }
+
+    sprintf(filename, "weights/conv3_3x3_bias_epoch_%d.bin", epoch);
+    f = fopen(filename, "wb");
+    if (f) {
+        fwrite(model->conv3_3x3->bias->data, sizeof(float), model->conv3_3x3->bias->size, f);
+        fclose(f);
+    }
+
+    // Save conv3_1x1 weights and bias
+    sprintf(filename, "weights/conv3_1x1_weight_epoch_%d.bin", epoch);
+    f = fopen(filename, "wb");
+    if (f) {
+        fwrite(model->conv3_1x1->weight->data, sizeof(float), model->conv3_1x1->weight->size, f);
+        fclose(f);
+    }
+
+    sprintf(filename, "weights/conv3_1x1_bias_epoch_%d.bin", epoch);
+    f = fopen(filename, "wb");
+    if (f) {
+        fwrite(model->conv3_1x1->bias->data, sizeof(float), model->conv3_1x1->bias->size, f);
         fclose(f);
     }
 
@@ -314,15 +380,15 @@ int main() {
     srand(time(NULL));
 
     // Load EMNIST lowercase letters dataset (filtered from byclass)
-    int max_samples = 64 * 3;
+    int max_samples = 1000;
     int max_samples_test = 1000;
     printf("Loading EMNIST Lowercase Letters dataset...\n");
-    Dataset* train_dataset = dataset_load_emnist("data/emnist_letters_train-images.idx",
-                                                "data/emnist_letters_train-labels.idx",
+    Dataset* train_dataset = dataset_load_emnist("data/font_letters_train-images.idx",
+                                                "data/font_letters_train-labels.idx",
                                                 64, 1, 4, NULL);  // batch_size=64, shuffle=1, num_workers=4, max_samples=NULL (use all)
 
-    Dataset* test_dataset = dataset_load_emnist("data/emnist_letters_test-images.idx",
-                                               "data/emnist_letters_test-labels.idx",
+    Dataset* test_dataset = dataset_load_emnist("data/font_letters_test-images.idx",
+                                               "data/font_letters_test-labels.idx",
                                                1000, 0, 1, NULL);  // batch_size=1000, shuffle=0, num_workers=1, max_samples=NULL (use all)
     if (!train_dataset || !test_dataset) {
         fprintf(stderr, "Failed to load dataset\n");
@@ -354,7 +420,7 @@ int main() {
     setup_optimizer_scheduler(model);
 
     // Training parameters
-    int num_epochs = 3;
+    int num_epochs = 6;
     float best_accuracy = 0.0f;
     int patience = 10;  // More patience for deeper model
     int patience_counter = 0;
@@ -375,6 +441,9 @@ int main() {
         float* batch_losses = (float*)malloc(train_dataset->num_batches * sizeof(float));
         float* batch_accuracies = (float*)malloc(train_dataset->num_batches * sizeof(float));
         float* batch_times = (float*)malloc(train_dataset->num_batches * sizeof(float));
+
+        // Track total elapsed time for ETA calculation
+        float total_elapsed_time = 0.0f;
 
         // Train on all batches
         for (int batch_idx = 0; batch_idx < train_dataset->num_batches; batch_idx++) {
@@ -410,9 +479,9 @@ int main() {
             }
 
             // Training step (loss + backward + optimizer)
+
             float batch_loss = cnn_training_step(model, forward_result, targets_adjusted);
             epoch_loss += batch_loss * batch->data->shape[0];  // batch_loss is averaged, so multiply back by batch_size
-
             // Calculate training accuracy for this batch (using same forward pass as loss)
             int pred_shape[] = {batch->data->shape[0], 1, 1, 1};
             Tensor* predictions = tensor_create(pred_shape, 4);
@@ -435,11 +504,13 @@ int main() {
             clock_t batch_end = clock();  // End timing
             float time_per_batch = (float)(batch_end - batch_start) / CLOCKS_PER_SEC * 100.0f;  // Convert to milliseconds
 
+            // Accumulate total elapsed time (convert to seconds)
+            total_elapsed_time += time_per_batch / 1000.0f;
+
             // Store batch data for later saving
             batch_losses[batch_idx] = batch_loss;
             batch_accuracies[batch_idx] = batch_acc;
             batch_times[batch_idx] = time_per_batch;
-
 
             tensor_free(predictions);
             cnn_forward_result_free(forward_result);
@@ -451,7 +522,7 @@ int main() {
             float current_avg_acc = (float)correct_train / total_train_samples * 100.0f;
             char prefix[32];
             sprintf(prefix, "Epoch %d/%d", epoch + 1, num_epochs);
-            print_progress_bar(batch_idx + 1, train_dataset->num_batches, prefix, current_avg_loss, current_avg_acc, time_per_batch);
+            print_progress_bar(batch_idx + 1, train_dataset->num_batches, prefix, current_avg_loss, current_avg_acc, time_per_batch, total_elapsed_time);
         }
 
         epoch_loss /= total_train_samples;
@@ -503,7 +574,7 @@ int main() {
 
             // Update progress bar for testing
             float current_test_acc = (float)correct_test / total_test_samples * 100.0f;
-            print_progress_bar(batch_idx + 1, test_dataset->num_batches, "Testing", 0.0f, current_test_acc, 0.0f);
+            print_progress_bar(batch_idx + 1, test_dataset->num_batches, "Testing", 0.0f, current_test_acc, 0.0f, 0.0f);
         }
 
         float test_accuracy = (float)correct_test / total_test_samples * 100.0f;
@@ -562,7 +633,7 @@ int main() {
 
         // Update progress bar for final testing
         float current_final_acc = (float)final_correct / final_total * 100.0f;
-        print_progress_bar(batch_idx + 1, test_dataset->num_batches, "Final Testing", 0.0f, current_final_acc, 0.0f);
+        print_progress_bar(batch_idx + 1, test_dataset->num_batches, "Final Testing", 0.0f, current_final_acc, 0.0f, 0.0f);
     }
 
     float final_accuracy = (float)final_correct / final_total * 100.0f;

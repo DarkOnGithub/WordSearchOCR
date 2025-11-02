@@ -10,6 +10,9 @@
 #include <omp.h>
 #endif
 
+// Prefetch distance for cache optimization
+#define PREFETCH_DISTANCE 64
+
 // Highly optimized 3x3 convolution for stride=1, padding=1 (interior only)
 // Adds into output 8 pixels starting at out_w_start (requires 1 <= out_w_start <= output_width-9 and 1 <= out_h <= output_height-2)
 static inline void conv3x3_8pixels_avx2(
@@ -33,6 +36,12 @@ static inline void conv3x3_8pixels_avx2(
     const int in_row0 = (out_h - 1) * input_width + (out_w_start - 1);
     const int in_row1 = (out_h     ) * input_width + (out_w_start - 1);
     const int in_row2 = (out_h + 1) * input_width + (out_w_start - 1);
+
+    // Prefetch input data for better cache performance
+    _mm_prefetch(&input[in_row0 + PREFETCH_DISTANCE], _MM_HINT_T0);
+    _mm_prefetch(&input[in_row1 + PREFETCH_DISTANCE], _MM_HINT_T0);
+    _mm_prefetch(&input[in_row2 + PREFETCH_DISTANCE], _MM_HINT_T0);
+    _mm_prefetch(&output[base_out + PREFETCH_DISTANCE], _MM_HINT_T0);
 
     // Load existing output to accumulate into
     __m256 outv = _mm256_loadu_ps(&output[base_out]);
@@ -64,6 +73,63 @@ static inline void conv3x3_8pixels_avx2(
     outv = _mm256_fmadd_ps(r2r, k8, outv);
 
     _mm256_storeu_ps(&output[base_out], outv);
+}
+
+// Highly optimized 1x1 convolution using SIMD with loop unrolling
+// Accumulates into output (does not zero it)
+static inline void conv1x1_single_channel_simd(
+    float* __restrict output, const float* __restrict input,
+    float kernel_weight, int output_size
+) {
+    __m256 k_vec = _mm256_set1_ps(kernel_weight);
+    const size_t vec_end = (output_size / 32) * 32; // Process 32 elements per iteration (4x unrolled)
+
+    // Unrolled loop processing 32 elements per iteration
+    for (size_t i = 0; i < vec_end; i += 32) {
+        // Prefetch next cache line for input and output
+        _mm_prefetch(&input[i + PREFETCH_DISTANCE], _MM_HINT_T0);
+        _mm_prefetch(&output[i + PREFETCH_DISTANCE], _MM_HINT_T0);
+
+        // Load inputs and outputs for 4 SIMD operations
+        __m256 in_vec0 = _mm256_loadu_ps(&input[i]);
+        __m256 in_vec1 = _mm256_loadu_ps(&input[i + 8]);
+        __m256 in_vec2 = _mm256_loadu_ps(&input[i + 16]);
+        __m256 in_vec3 = _mm256_loadu_ps(&input[i + 24]);
+
+        __m256 out_vec0 = _mm256_loadu_ps(&output[i]);
+        __m256 out_vec1 = _mm256_loadu_ps(&output[i + 8]);
+        __m256 out_vec2 = _mm256_loadu_ps(&output[i + 16]);
+        __m256 out_vec3 = _mm256_loadu_ps(&output[i + 24]);
+
+        // FMA operations
+        out_vec0 = _mm256_fmadd_ps(in_vec0, k_vec, out_vec0);
+        out_vec1 = _mm256_fmadd_ps(in_vec1, k_vec, out_vec1);
+        out_vec2 = _mm256_fmadd_ps(in_vec2, k_vec, out_vec2);
+        out_vec3 = _mm256_fmadd_ps(in_vec3, k_vec, out_vec3);
+
+        // Store results
+        _mm256_storeu_ps(&output[i], out_vec0);
+        _mm256_storeu_ps(&output[i + 8], out_vec1);
+        _mm256_storeu_ps(&output[i + 16], out_vec2);
+        _mm256_storeu_ps(&output[i + 24], out_vec3);
+    }
+
+    // Handle remaining elements (up to 31 elements)
+    const size_t remainder_start = vec_end;
+    const size_t remainder_end = (output_size / 8) * 8;
+
+    // Process remaining full SIMD vectors (8 elements each)
+    for (size_t i = remainder_start; i < remainder_end; i += 8) {
+        __m256 in_vec = _mm256_loadu_ps(&input[i]);
+        __m256 out_vec = _mm256_loadu_ps(&output[i]);
+        out_vec = _mm256_fmadd_ps(in_vec, k_vec, out_vec);
+        _mm256_storeu_ps(&output[i], out_vec);
+    }
+
+    // Handle final remaining scalar elements
+    for (size_t i = remainder_end; i < (size_t)output_size; ++i) {
+        output[i] += input[i] * kernel_weight;
+    }
 }
 
 // Optimized 3x3 convolution for single channel (stride=1, padding=1)
@@ -105,8 +171,14 @@ static inline void conv3x3_single_channel_optimized(
                 output[out_h * output_width + 0] += sum;
             }
 
-            // Vectorized interior (8 at a time), requires 1 <= w < W-9
+            // Vectorized interior with loop unrolling (16 pixels at a time when possible)
             int out_w = 1;
+            for (; out_w < output_width - 17; out_w += 16) {
+                // Process two blocks of 8 pixels each
+                conv3x3_8pixels_avx2(output, input, kernel, input_width, input_height, output_width, out_h, out_w);
+                conv3x3_8pixels_avx2(output, input, kernel, input_width, input_height, output_width, out_h, out_w + 8);
+            }
+            // Process remaining blocks of 8 pixels
             for (; out_w < output_width - 9; out_w += 8) {
                 conv3x3_8pixels_avx2(output, input, kernel, input_width, input_height, output_width, out_h, out_w);
             }
@@ -308,11 +380,17 @@ Tensor* conv2D_forward(Conv2D* conv, Tensor* input) {
                 const float* input_channel = &input->data[b * input_channels * input_width * input_height +
                                                          ic * input_width * input_height];
 
-                // Use optimized 3x3 convolution for the common case (stride=1, padding=1, kernel_size=3)
+                // Use optimized convolutions for common cases
                 if (conv->kernel_size == 3 && conv->stride == 1 && conv->padding == 1) {
                     conv3x3_single_channel_optimized(
                         output_channel, input_channel, kernel,
                         output_width, output_height, input_width, input_height
+                    );
+                } else if (conv->kernel_size == 1 && conv->stride == 1 && conv->padding == 0) {
+                    // For 1x1 convolution, kernel is a single float value
+                    const int output_elements = output_width * output_height;
+                    conv1x1_single_channel_simd(
+                        output_channel, input_channel, kernel[0], output_elements
                     );
                 } else {
                     // Fallback to generic SIMD convolution
@@ -426,6 +504,104 @@ static inline void compute_weight_grad_generic(float* __restrict weight_grad, co
     }
 }
 
+// Optimized weight gradient computation for 1x1 kernels using SIMD with loop unrolling
+static inline void compute_weight_grad_1x1(float* __restrict weight_grad, const float* __restrict input, const float* __restrict grad_output,
+                                          int batch_size, int input_channels, int output_channels,
+                                          int input_height, int input_width,
+                                          int output_height, int output_width) {
+    const int plane = output_height * output_width;
+    const int in_batch_stride = input_channels * input_height * input_width;
+    const int out_batch_stride = output_channels * plane;
+
+    #pragma omp parallel for collapse(2) schedule(static) if (output_channels * input_channels > 1)
+    for (int oc = 0; oc < output_channels; ++oc) {
+        for (int ic = 0; ic < input_channels; ++ic) {
+            const int widx = oc * input_channels + ic;
+            __m256 vsum0 = _mm256_setzero_ps();
+            __m256 vsum1 = _mm256_setzero_ps();
+            __m256 vsum2 = _mm256_setzero_ps();
+            __m256 vsum3 = _mm256_setzero_ps();
+            float tail = 0.0f;
+
+            // Process batches in groups of 4 for better ILP
+            int b = 0;
+            for (; b < batch_size - 3; b += 4) {
+                const float* in_base0 = input + b * in_batch_stride + ic * plane;
+                const float* in_base1 = input + (b + 1) * in_batch_stride + ic * plane;
+                const float* in_base2 = input + (b + 2) * in_batch_stride + ic * plane;
+                const float* in_base3 = input + (b + 3) * in_batch_stride + ic * plane;
+
+                const float* go_base0 = grad_output + b * out_batch_stride + oc * plane;
+                const float* go_base1 = grad_output + (b + 1) * out_batch_stride + oc * plane;
+                const float* go_base2 = grad_output + (b + 2) * out_batch_stride + oc * plane;
+                const float* go_base3 = grad_output + (b + 3) * out_batch_stride + oc * plane;
+
+                const size_t vec_end = (plane / 8) * 8;
+                for (size_t i = 0; i < vec_end; i += 8) {
+                    // Prefetch next cache lines
+                    _mm_prefetch(in_base0 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+                    _mm_prefetch(in_base1 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+                    _mm_prefetch(in_base2 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+                    _mm_prefetch(in_base3 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+                    _mm_prefetch(go_base0 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+                    _mm_prefetch(go_base1 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+                    _mm_prefetch(go_base2 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+                    _mm_prefetch(go_base3 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+
+                    __m256 vin0 = _mm256_loadu_ps(in_base0 + i);
+                    __m256 vin1 = _mm256_loadu_ps(in_base1 + i);
+                    __m256 vin2 = _mm256_loadu_ps(in_base2 + i);
+                    __m256 vin3 = _mm256_loadu_ps(in_base3 + i);
+
+                    __m256 vgo0 = _mm256_loadu_ps(go_base0 + i);
+                    __m256 vgo1 = _mm256_loadu_ps(go_base1 + i);
+                    __m256 vgo2 = _mm256_loadu_ps(go_base2 + i);
+                    __m256 vgo3 = _mm256_loadu_ps(go_base3 + i);
+
+                    vsum0 = _mm256_fmadd_ps(vin0, vgo0, vsum0);
+                    vsum1 = _mm256_fmadd_ps(vin1, vgo1, vsum1);
+                    vsum2 = _mm256_fmadd_ps(vin2, vgo2, vsum2);
+                    vsum3 = _mm256_fmadd_ps(vin3, vgo3, vsum3);
+                }
+
+                // Handle remaining elements in each batch
+                for (size_t i = vec_end; i < (size_t)plane; ++i) {
+                    tail += in_base0[i] * go_base0[i] +
+                            in_base1[i] * go_base1[i] +
+                            in_base2[i] * go_base2[i] +
+                            in_base3[i] * go_base3[i];
+                }
+            }
+
+            // Handle remaining batches
+            for (; b < batch_size; ++b) {
+                const float* in_base = input + b * in_batch_stride + ic * plane;
+                const float* go_base = grad_output + b * out_batch_stride + oc * plane;
+
+                const size_t vec_end = (plane / 8) * 8;
+                for (size_t i = 0; i < vec_end; i += 8) {
+                    __m256 vin = _mm256_loadu_ps(in_base + i);
+                    __m256 vgo = _mm256_loadu_ps(go_base + i);
+                    vsum0 = _mm256_fmadd_ps(vin, vgo, vsum0);
+                }
+
+                for (size_t i = vec_end; i < (size_t)plane; ++i) {
+                    tail += in_base[i] * go_base[i];
+                }
+            }
+
+            // Combine all accumulators
+            vsum0 = _mm256_add_ps(vsum0, vsum1);
+            vsum2 = _mm256_add_ps(vsum2, vsum3);
+            vsum0 = _mm256_add_ps(vsum0, vsum2);
+
+            float tmp[8];
+            _mm256_storeu_ps(tmp, vsum0);
+            weight_grad[widx] = tail + tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7];
+        }
+    }
+}
+
 // Optimized weight gradient computation for 3x3 kernels
 static inline void compute_weight_grad_3x3(float* __restrict weight_grad, const float* __restrict input, const float* __restrict grad_output,
                                          int batch_size, int input_channels, int output_channels,
@@ -476,6 +652,96 @@ static inline void compute_weight_grad_3x3(float* __restrict weight_grad, const 
                     float sum = tail + tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7];
                     const int widx = oc * (input_channels * 9) + ic * 9 + kh * 3 + kw;
                     weight_grad[widx] = sum;
+                }
+            }
+        }
+    }
+}
+
+// Optimized input gradient computation for 1x1 kernels using SIMD with loop unrolling
+static inline void compute_input_grad_1x1(float* __restrict grad_input, const float* __restrict weights, const float* __restrict grad_output,
+                                         int batch_size, int input_channels, int output_channels,
+                                         int input_height, int input_width,
+                                         int output_height, int output_width) {
+    memset(grad_input, 0, (size_t)batch_size * input_channels * input_height * input_width * sizeof(float));
+
+    const int plane = output_height * output_width;
+    const int in_batch_stride = input_channels * input_height * input_width;
+    const int out_batch_stride = output_channels * plane;
+
+    #pragma omp parallel for collapse(2) schedule(static) if (batch_size * input_channels > 1)
+    for (int b = 0; b < batch_size; ++b) {
+        for (int ic = 0; ic < input_channels; ++ic) {
+            float* gi_base = grad_input + b * in_batch_stride + ic * plane;
+
+            // Process output channels in groups of 4 for better ILP
+            int oc = 0;
+            for (; oc < output_channels - 3; oc += 4) {
+                const float k0 = weights[oc * input_channels + ic];
+                const float k1 = weights[(oc + 1) * input_channels + ic];
+                const float k2 = weights[(oc + 2) * input_channels + ic];
+                const float k3 = weights[(oc + 3) * input_channels + ic];
+
+                const float* go_base0 = grad_output + b * out_batch_stride + oc * plane;
+                const float* go_base1 = grad_output + b * out_batch_stride + (oc + 1) * plane;
+                const float* go_base2 = grad_output + b * out_batch_stride + (oc + 2) * plane;
+                const float* go_base3 = grad_output + b * out_batch_stride + (oc + 3) * plane;
+
+                __m256 k_vec0 = _mm256_set1_ps(k0);
+                __m256 k_vec1 = _mm256_set1_ps(k1);
+                __m256 k_vec2 = _mm256_set1_ps(k2);
+                __m256 k_vec3 = _mm256_set1_ps(k3);
+
+                const size_t vec_end = (plane / 8) * 8;
+                for (size_t i = 0; i < vec_end; i += 8) {
+                    // Prefetch next cache lines
+                    _mm_prefetch(go_base0 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+                    _mm_prefetch(go_base1 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+                    _mm_prefetch(go_base2 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+                    _mm_prefetch(go_base3 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+                    _mm_prefetch(gi_base + i + PREFETCH_DISTANCE, _MM_HINT_T0);
+
+                    __m256 go_vec0 = _mm256_loadu_ps(go_base0 + i);
+                    __m256 go_vec1 = _mm256_loadu_ps(go_base1 + i);
+                    __m256 go_vec2 = _mm256_loadu_ps(go_base2 + i);
+                    __m256 go_vec3 = _mm256_loadu_ps(go_base3 + i);
+
+                    __m256 gi_vec = _mm256_loadu_ps(gi_base + i);
+
+                    gi_vec = _mm256_fmadd_ps(go_vec0, k_vec0, gi_vec);
+                    gi_vec = _mm256_fmadd_ps(go_vec1, k_vec1, gi_vec);
+                    gi_vec = _mm256_fmadd_ps(go_vec2, k_vec2, gi_vec);
+                    gi_vec = _mm256_fmadd_ps(go_vec3, k_vec3, gi_vec);
+
+                    _mm256_storeu_ps(gi_base + i, gi_vec);
+                }
+
+                // Handle remaining elements
+                for (size_t i = vec_end; i < (size_t)plane; ++i) {
+                    gi_base[i] += go_base0[i] * k0 +
+                                 go_base1[i] * k1 +
+                                 go_base2[i] * k2 +
+                                 go_base3[i] * k3;
+                }
+            }
+
+            // Handle remaining output channels
+            for (; oc < output_channels; ++oc) {
+                const float kernel_weight = weights[oc * input_channels + ic];
+                const float* go_base = grad_output + b * out_batch_stride + oc * plane;
+
+                __m256 k_vec = _mm256_set1_ps(kernel_weight);
+                const size_t vec_end = (plane / 8) * 8;
+
+                for (size_t i = 0; i < vec_end; i += 8) {
+                    __m256 go_vec = _mm256_loadu_ps(go_base + i);
+                    __m256 gi_vec = _mm256_loadu_ps(gi_base + i);
+                    gi_vec = _mm256_fmadd_ps(go_vec, k_vec, gi_vec);
+                    _mm256_storeu_ps(gi_base + i, gi_vec);
+                }
+
+                for (size_t i = vec_end; i < (size_t)plane; ++i) {
+                    gi_base[i] += go_base[i] * kernel_weight;
                 }
             }
         }
@@ -555,6 +821,10 @@ Tensor* conv2D_backward(Conv2D* conv, Tensor* input, Tensor* grad_output) {
         compute_weight_grad_3x3(conv->weight_grad->data, input->data, grad_output->data,
                                batch_size, input_channels, output_channels,
                                input_height, input_width, output_height, output_width);
+    } else if (conv->kernel_size == 1 && conv->stride == 1 && conv->padding == 0) {
+        compute_weight_grad_1x1(conv->weight_grad->data, input->data, grad_output->data,
+                               batch_size, input_channels, output_channels,
+                               input_height, input_width, output_height, output_width);
     } else {
         compute_weight_grad_generic(conv->weight_grad->data, input->data, grad_output->data,
                                    batch_size, input_channels, output_channels,
@@ -569,6 +839,11 @@ Tensor* conv2D_backward(Conv2D* conv, Tensor* input, Tensor* grad_output) {
     if (conv->kernel_size == 3 && conv->stride == 1 && conv->padding == 1) {
         // Use optimized 3x3 version
         compute_input_grad_3x3(grad_input->data, conv->weight->data, grad_output->data,
+                              batch_size, input_channels, output_channels,
+                              input_height, input_width, output_height, output_width);
+    } else if (conv->kernel_size == 1 && conv->stride == 1 && conv->padding == 0) {
+        // Use optimized 1x1 version
+        compute_input_grad_1x1(grad_input->data, conv->weight->data, grad_output->data,
                               batch_size, input_channels, output_channels,
                               input_height, input_width, output_height, output_width);
     } else {

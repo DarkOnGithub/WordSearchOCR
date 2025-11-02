@@ -1,9 +1,79 @@
 #include "../include/nn/cnn.h"
 #include "../include/image/image.h"
 #include "image/operations.h"
+#include "../include/nn/layers/cross_entropy_loss.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <dirent.h>
+#include <string.h>
+#include <cairo/cairo.h>
+
+// Draw text on an image using Cairo
+void draw_text_on_image(Image* image, const char* text, int x, int y, const char* font_family, int font_size, double r, double g, double b) {
+    if (!image || !image->rgba_pixels || !text) {
+        fprintf(stderr, "Error: Invalid image or text for drawing\n");
+        return;
+    }
+
+    // Convert RGBA to ARGB for Cairo
+    uint32_t* argb_pixels = (uint32_t*)malloc(image->width * image->height * sizeof(uint32_t));
+    if (!argb_pixels) {
+        fprintf(stderr, "Error: Failed to allocate ARGB buffer for text drawing\n");
+        return;
+    }
+
+    for (int i = 0; i < image->width * image->height; i++) {
+        uint32_t rgba = image->rgba_pixels[i];
+        uint8_t r_val = (rgba >> 24) & 0xFF;
+        uint8_t g_val = (rgba >> 16) & 0xFF;
+        uint8_t b_val = (rgba >> 8) & 0xFF;
+        uint8_t a_val = rgba & 0xFF;
+        argb_pixels[i] = (a_val << 24) | (r_val << 16) | (g_val << 8) | b_val;
+    }
+
+    cairo_surface_t* surface = cairo_image_surface_create_for_data(
+        (unsigned char*)argb_pixels, CAIRO_FORMAT_ARGB32,
+        image->width, image->height, image->width * 4);
+
+    if (!surface || cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
+        fprintf(stderr, "Error: Failed to create Cairo surface for text drawing\n");
+        free(argb_pixels);
+        return;
+    }
+
+    cairo_t* cr = cairo_create(surface);
+    if (!cr || cairo_status(cr) != CAIRO_STATUS_SUCCESS) {
+        fprintf(stderr, "Error: Failed to create Cairo context for text drawing\n");
+        cairo_surface_destroy(surface);
+        free(argb_pixels);
+        return;
+    }
+
+    // Set font properties
+    cairo_select_font_face(cr, font_family, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, font_size);
+    cairo_set_source_rgba(cr, r, g, b, 1.0);
+
+    // Draw text
+    cairo_move_to(cr, x, y);
+    cairo_show_text(cr, text);
+
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+
+    // Convert back to RGBA
+    for (int i = 0; i < image->width * image->height; i++) {
+        uint32_t argb = argb_pixels[i];
+        uint8_t a_val = (argb >> 24) & 0xFF;
+        uint8_t r_val = (argb >> 16) & 0xFF;
+        uint8_t g_val = (argb >> 8) & 0xFF;
+        uint8_t b_val = argb & 0xFF;
+        image->rgba_pixels[i] = (r_val << 24) | (g_val << 16) | (b_val << 8) | a_val;
+    }
+
+    free(argb_pixels);
+}
 
 // Resize a grayscale image to target width and height using bilinear interpolation
 void resize_grayscale_image(Image* src, Image* dst, int target_width, int target_height) {
@@ -67,23 +137,37 @@ void resize_grayscale_image(Image* src, Image* dst, int target_width, int target
     }
 }
 
+// Check if file is an image based on extension and not already processed
+int is_image_file(const char* filename) {
+    // Skip files that already contain prediction results (avoid infinite loop)
+    if (strstr(filename, "_pred_") != NULL) {
+        return 0;
+    }
+
+    const char* ext = strrchr(filename, '.');
+    if (!ext) return 0;
+    return strcmp(ext, ".png") == 0 || strcmp(ext, ".jpg") == 0 ||
+           strcmp(ext, ".jpeg") == 0 || strcmp(ext, ".bmp") == 0 ||
+           strcmp(ext, ".tiff") == 0 || strcmp(ext, ".tif") == 0;
+}
+
 int main(int argc, char* argv[]) {
     if (argc != 3) {
-        fprintf(stderr, "Usage: %s <epoch> <image_path>\n", argv[0]);
-        fprintf(stderr, "Example: %s 3 test_image.png\n", argv[0]);
+        fprintf(stderr, "Usage: %s <epoch> <folder_path>\n", argv[0]);
+        fprintf(stderr, "Example: %s 3 ./test_images/\n", argv[0]);
         return 1;
     }
 
     int epoch = atoi(argv[1]);
-    const char* image_path = argv[2];
+    const char* folder_path = argv[2];
 
     if (epoch <= 0) {
         fprintf(stderr, "Error: Epoch must be a positive integer\n");
         return 1;
     }
 
-    printf("EMNIST Letter Recognition Inference\n");
-    printf("===================================\n");
+    printf("EMNIST Letter Recognition Batch Inference\n");
+    printf("=========================================\n");
     printf("Loading model weights from epoch %d...\n", epoch);
 
     // Create CNN model
@@ -102,74 +186,160 @@ int main(int argc, char* argv[]) {
 
     printf("Weights loaded successfully!\n");
 
-    // Load and preprocess image
-    printf("Loading image: %s\n", image_path);
-    Image img;
-    load_image(image_path, &img);
-    if (img.width == 0 || img.height == 0) {
-        fprintf(stderr, "Failed to load image: %s\n", image_path);
+    // Open directory
+    DIR* dir = opendir(folder_path);
+    if (!dir) {
+        fprintf(stderr, "Error: Cannot open directory %s\n", folder_path);
         cnn_free(model);
         return 1;
     }
-    invert(&img);
-    // Convert to grayscale if not already
-    if (!img.is_grayscale) {
-        convert_to_grayscale(&img);
-    }
 
-    printf("Image loaded: %dx%d grayscale\n", img.width, img.height);
+    struct dirent* entry;
+    int processed_count = 0;
 
-    // Resize to 28x28 if needed
-    Image resized_img = {0};
-    if (img.width != 28 || img.height != 28) {
-        printf("Resizing image to 28x28...\n");
-        resize_grayscale_image(&img, &resized_img, 28, 28);
-        free_image(&img);  // Free original image
-        img = resized_img;  // Use resized image
-        printf("Image resized to 28x28\n");
-    }
-
-    // Convert to tensor
-    Tensor* img_tensor = to_tensor(&img);
-    if (!img_tensor) {
-        fprintf(stderr, "Failed to convert image to tensor\n");
-        free_image(&img);
-        cnn_free(model);
-        return 1;
-    }
-    // Reshape to NCHW format (1, 1, 28, 28)
-    // The to_tensor function already creates (1, 1, 28, 28) for grayscale
-
-    // Normalize from [0,1] to [-1,1] (same as training)
-    for (int i = 0; i < img_tensor->size; i++) {
-        img_tensor->data[i] = (img_tensor->data[i] - 0.5f) / 0.5f;
-    }
+    printf("Processing images in folder: %s\n", folder_path);
+    printf("=========================================\n");
 
     // Set model to evaluation mode
     cnn_eval(model);
 
-    // Perform inference
-    printf("Running inference...\n");
-    Tensor* predictions = cnn_predict(model, img_tensor);
-    if (!predictions) {
-        fprintf(stderr, "Inference failed\n");
+    // Iterate through all files in the directory
+    while ((entry = readdir(dir)) != NULL) {
+        // Skip hidden files and current/parent directory entries
+        if (entry->d_name[0] == '.' ||
+            strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        // Check if it's an image file
+        if (!is_image_file(entry->d_name)) {
+            continue;
+        }
+
+        // Construct full path
+        char image_path[1024];
+        snprintf(image_path, sizeof(image_path), "%s/%s", folder_path, entry->d_name);
+
+        printf("Processing: %s\n", entry->d_name);
+
+        // Load and preprocess image
+        Image img;
+        load_image(image_path, &img);
+        if (img.width == 0 || img.height == 0) {
+            fprintf(stderr, "Failed to load image: %s\n", image_path);
+            continue;
+        }
+
+        // Keep original image for overlay (before preprocessing)
+        Image original_img;
+        cpy_image(&img, &original_img);
+
+        // invert(&img);
+        // Convert to grayscale if not already
+        if (!img.is_grayscale) {
+            convert_to_grayscale(&img);
+        }
+
+        // Resize to 28x28 if needed
+        Image resized_img = {0};
+        if (img.width != 28 || img.height != 28) {
+            resize_grayscale_image(&img, &resized_img, 28, 28);
+            free_image(&img);
+            img = resized_img;
+        }
+
+        // Convert to tensor
+        Tensor* img_tensor = to_tensor(&img);
+        if (!img_tensor) {
+            fprintf(stderr, "Failed to convert image to tensor\n");
+            free_image(&img);
+            free_image(&original_img);
+            continue;
+        }
+
+        // Normalize from [0,1] to [-1,1] (same as training)
+        for (int i = 0; i < img_tensor->size; i++) {
+            img_tensor->data[i] = (img_tensor->data[i] - 0.5f) / 0.5f;
+        }
+
+        // Perform forward pass to get raw logits
+        CNNForwardResult* forward_result = cnn_forward(model, img_tensor);
+        if (!forward_result) {
+            fprintf(stderr, "Forward pass failed\n");
+            tensor_free(img_tensor);
+            free_image(&img);
+            free_image(&original_img);
+            continue;
+        }
+
+        // Apply softmax to get probabilities
+        Tensor* softmax_output = softmax(forward_result->fc2_out);
+        if (!softmax_output) {
+            fprintf(stderr, "Softmax failed\n");
+            cnn_forward_result_free(forward_result);
+            tensor_free(img_tensor);
+            free_image(&img);
+            free_image(&original_img);
+            continue;
+        }
+
+        // Find the best prediction
+        int predicted_class = 0;
+        float max_prob = softmax_output->data[0];
+        for (int c = 1; c < 26; c++) {
+            if (softmax_output->data[c] > max_prob) {
+                max_prob = softmax_output->data[c];
+                predicted_class = c;
+            }
+        }
+
+        char predicted_letter = 'A' + predicted_class;
+        float percentage = max_prob * 100.0f;
+
+        printf("  Prediction: %c (%.2f%% confidence)\n", predicted_letter, percentage);
+
+        // Convert original image to RGBA for text overlay
+        if (original_img.is_grayscale) {
+            gray_to_rgba(&original_img);
+        }
+
+        // Create text to overlay
+        char text[50];
+        snprintf(text, sizeof(text), "%c: %.1f%%", predicted_letter, percentage);
+
+        // Draw text on the image (bottom-left corner)
+        int font_size = original_img.height / 10; // Scale font size with image height
+        draw_text_on_image(&original_img, text, 10, original_img.height - 20,
+                          "Sans", font_size, 1.0, 0.0, 0.0); // Red text
+
+        // Save the processed image
+        char output_path[1024];
+        char base_name[256];
+        strcpy(base_name, entry->d_name);
+        char* dot_pos = strrchr(base_name, '.');
+        if (dot_pos) *dot_pos = '\0'; // Remove extension
+
+        snprintf(output_path, sizeof(output_path), "%s/%s_pred_%c_%.0f%%.png",
+                folder_path, base_name, predicted_letter, percentage);
+        save_image(output_path, &original_img);
+
+        printf("  Saved: %s\n", output_path);
+
+        // Cleanup
+        tensor_free(softmax_output);
+        cnn_forward_result_free(forward_result);
         tensor_free(img_tensor);
         free_image(&img);
-        cnn_free(model);
-        return 1;
+        free_image(&original_img);
+
+        processed_count++;
     }
 
-    // Get predicted class (0-25 -> A-Z)
-    int predicted_class = (int)predictions->data[0];
-    char predicted_letter = 'A' + predicted_class;
-
-    printf("Prediction: %c (class %d)\n", predicted_letter, predicted_class);
-
-    // Cleanup
-    tensor_free(predictions);
-    tensor_free(img_tensor);
-    free_image(&img);
+    closedir(dir);
     cnn_free(model);
+
+    printf("\nProcessing complete! Processed %d images.\n", processed_count);
 
     return 0;
 }
