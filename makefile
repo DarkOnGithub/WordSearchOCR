@@ -5,16 +5,16 @@ SRC_DIR = src
 TARGET = $(BUILD_DIR)/$(PROJECT_NAME)
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -g -mavx2 -mfma -fopenmp -Iinclude $(CBLAS_CFLAGS)
-LDFLAGS = -lm -fopenmp $(CBLAS_LIBS)
+CFLAGS = -Wall -Wextra -std=c99 -g -mavx2 -mfma -fopenmp -Iinclude
+LDFLAGS = -lm -fopenmp
 
 # Training-specific optimization flags for maximum performance
-TRAIN_CFLAGS = -O3 -march=native -flto -ffast-math -funroll-loops -mavx2 -mfma -fopenmp -DNDEBUG -Iinclude $(CBLAS_CFLAGS) $(GTK_CFLAGS)
-TRAIN_LDFLAGS = -O3 -flto -lm -fopenmp $(CBLAS_LIBS) $(GTK_LIBS)
+TRAIN_CFLAGS = -O3 -march=native -flto -ffast-math -funroll-loops -mavx2 -mfma -fopenmp -DNDEBUG -Iinclude $(GTK_CFLAGS)
+TRAIN_LDFLAGS = -O3 -flto -lm -fopenmp $(GTK_LIBS)
 
 # Profiling flags for gprof
-PROFILE_CFLAGS = -pg -g -O2 -mavx2 -mfma -Iinclude $(CBLAS_CFLAGS)
-PROFILE_LDFLAGS = -pg -lm $(CBLAS_LIBS)
+PROFILE_CFLAGS = -pg -g -O2 -mavx2 -mfma -Iinclude
+PROFILE_LDFLAGS = -pg -lm
 
 MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*XNOR.c" -not -path "*/solver/main.c" -not -path "*/nn/train.c" -not -path "*/nn/inference.c")
 MAIN_OBJECTS = $(MAIN_SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
@@ -28,7 +28,6 @@ TRAIN_TARGET = $(BUILD_DIR)/nn/train
 INFERENCE_TARGET = $(BUILD_DIR)/nn/inference
 
 GTK3_AVAILABLE := $(shell pkg-config --exists gtk+-3.0 2>/dev/null && echo "yes" || echo "no")
-CBLAS_AVAILABLE := $(shell pkg-config --exists openblas 2>/dev/null && echo "yes" || echo "no")
 
 ifeq ($(GTK3_AVAILABLE),yes)
     GTK_CFLAGS = $(shell pkg-config --cflags gtk+-3.0)
@@ -38,13 +37,6 @@ else
     GTK_LIBS =
 endif
 
-ifeq ($(CBLAS_AVAILABLE),yes)
-    CBLAS_CFLAGS = $(shell pkg-config --cflags openblas) -DUSE_BLAS
-    CBLAS_LIBS = $(shell pkg-config --libs openblas)
-else
-    CBLAS_CFLAGS =
-    CBLAS_LIBS = -lopenblas
-endif
 
 
 all: dirs $(TARGET)
@@ -257,7 +249,6 @@ info:
 	@echo "Main Sources: $(words $(MAIN_SOURCES))"
 	@echo "Main Objects: $(words $(MAIN_OBJECTS))"
 	@echo "GTK3: $(GTK3_AVAILABLE)"
-	@echo "CBLAS: $(CBLAS_AVAILABLE)"
 	@echo "Compiler: $(CC)"
 	@echo "CFLAGS: $(CFLAGS)"
 	@echo "LDFLAGS: $(LDFLAGS)"
