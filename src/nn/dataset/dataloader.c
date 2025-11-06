@@ -144,44 +144,49 @@ unsigned char* load_idx_labels(const char* path, int* num_labels) {
 // Worker function for multi-threaded batch loading
 void* load_batch_worker(void* args) {
     ThreadArgs* thread_args = (ThreadArgs*)args;
-    int batch_idx = thread_args->worker_id;
-    int start_sample = batch_idx * thread_args->batch_size;
-    int end_sample = (start_sample + thread_args->batch_size > thread_args->num_images) ?
-                     thread_args->num_images : start_sample + thread_args->batch_size;
+    int worker_id = thread_args->worker_id;
+    int num_batches = (thread_args->num_images + thread_args->batch_size - 1) / thread_args->batch_size;
 
-    int actual_batch_size = end_sample - start_sample;
-    if (actual_batch_size <= 0) return NULL;
+    // Each worker processes batches assigned to it in round-robin fashion
+    for (int batch_idx = worker_id; batch_idx < num_batches; batch_idx += thread_args->num_workers) {
+        int start_sample = batch_idx * thread_args->batch_size;
+        int end_sample = (start_sample + thread_args->batch_size > thread_args->num_images) ?
+                         thread_args->num_images : start_sample + thread_args->batch_size;
 
-    // Create batch tensors
-    int data_shape[4] = {actual_batch_size, 1, 28, 28};
-    int label_shape[3] = {actual_batch_size, 1, 1};
-    thread_args->dataset->batches[batch_idx].data = tensor_create(data_shape, 4);
-    thread_args->dataset->batches[batch_idx].labels = tensor_create(label_shape, 3);
+        int actual_batch_size = end_sample - start_sample;
+        if (actual_batch_size <= 0) continue;
 
-    if (!thread_args->dataset->batches[batch_idx].data || !thread_args->dataset->batches[batch_idx].labels) {
-        return NULL;
-    }
+        // Create batch tensors
+        int data_shape[4] = {actual_batch_size, 1, 28, 28};
+        int label_shape[3] = {actual_batch_size, 1, 1};
+        thread_args->dataset->batches[batch_idx].data = tensor_create(data_shape, 4);
+        thread_args->dataset->batches[batch_idx].labels = tensor_create(label_shape, 3);
 
-    // Load data into tensors
-    for (int i = 0; i < actual_batch_size; i++) {
-        // Use shuffled indices if available, otherwise sequential
-        int sample_idx = thread_args->indices ? thread_args->indices[start_sample + i] : (start_sample + i);
-
-        // Copy image data (normalize to 0-1 range)
-        for (int y = 0; y < 28; y++) {
-            for (int x = 0; x < 28; x++) {
-                int file_pixel_idx = sample_idx * EMNIST_IMAGE_SIZE + y * 28 + x;
-                int tensor_pixel_idx = y * 28 + x;
-                int tensor_idx = i * EMNIST_IMAGE_SIZE + tensor_pixel_idx;
-
-                thread_args->dataset->batches[batch_idx].data->data[tensor_idx] =
-                    (float)thread_args->image_data[file_pixel_idx] / 255.0f;
-            }
+        if (!thread_args->dataset->batches[batch_idx].data || !thread_args->dataset->batches[batch_idx].labels) {
+            return NULL;
         }
 
-        // Set label (as class index, 1-based indexing: 1-26 for a-z)
-        thread_args->dataset->batches[batch_idx].labels->data[i] =
-            (float)thread_args->label_data[sample_idx] + 1.0f;
+        // Load data into tensors
+        for (int i = 0; i < actual_batch_size; i++) {
+            // Use shuffled indices if available, otherwise sequential
+            int sample_idx = thread_args->indices ? thread_args->indices[start_sample + i] : (start_sample + i);
+
+            // Copy image data (normalize to 0-1 range)
+            for (int y = 0; y < 28; y++) {
+                for (int x = 0; x < 28; x++) {
+                    int file_pixel_idx = sample_idx * EMNIST_IMAGE_SIZE + y * 28 + x;
+                    int tensor_pixel_idx = y * 28 + x;
+                    int tensor_idx = i * EMNIST_IMAGE_SIZE + tensor_pixel_idx;
+
+                    thread_args->dataset->batches[batch_idx].data->data[tensor_idx] =
+                        (float)thread_args->image_data[file_pixel_idx] / 255.0f;
+                }
+            }
+
+            // Set label (as class index, 1-based indexing: 1-26 for a-z)
+            thread_args->dataset->batches[batch_idx].labels->data[i] =
+                (float)thread_args->label_data[sample_idx] + 1.0f;
+        }
     }
 
     return NULL;
@@ -352,13 +357,13 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
     }
 
     // Multi-threaded batch loading
-    pthread_t* threads = (pthread_t*)malloc(sizeof(pthread_t) * num_batches);
-    ThreadArgs* thread_args = (ThreadArgs*)malloc(sizeof(ThreadArgs) * num_batches);
+    pthread_t* threads = (pthread_t*)malloc(sizeof(pthread_t) * num_workers);
+    ThreadArgs* thread_args = (ThreadArgs*)malloc(sizeof(ThreadArgs) * num_workers);
     pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-    // Create all batch processing threads
-    for (int b = 0; b < num_batches; b++) {
-        thread_args[b] = (ThreadArgs){
+    // Create worker threads
+    for (int w = 0; w < num_workers; w++) {
+        thread_args[w] = (ThreadArgs){
             .images_path = images_path,
             .labels_path = labels_path,
             .image_data = image_data,
@@ -367,18 +372,18 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
             .batch_size = batch_size,
             .shuffle = shuffle,
             .num_workers = num_workers,
-            .worker_id = b,  // batch index
+            .worker_id = w,  // worker index (0 to num_workers-1)
             .indices = indices,  // shuffled indices (or NULL)
             .dataset = dataset,
             .mutex = &mutex
         };
 
-        pthread_create(&threads[b], NULL, load_batch_worker, &thread_args[b]);
+        pthread_create(&threads[w], NULL, load_batch_worker, &thread_args[w]);
     }
 
     // Wait for all threads to complete
-    for (int b = 0; b < num_batches; b++) {
-        pthread_join(threads[b], NULL);
+    for (int w = 0; w < num_workers; w++) {
+        pthread_join(threads[w], NULL);
     }
 
     // Cleanup
