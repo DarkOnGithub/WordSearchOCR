@@ -179,9 +179,9 @@ void* load_batch_worker(void* args) {
             }
         }
 
-        // Set label (as class index, not one-hot for now)
+        // Set label (as class index, 1-based indexing: 1-26 for a-z)
         thread_args->dataset->batches[batch_idx].labels->data[i] =
-            (float)thread_args->label_data[sample_idx];
+            (float)thread_args->label_data[sample_idx] + 1.0f;
     }
 
     return NULL;

@@ -8,6 +8,9 @@
 #include <dirent.h>
 #include <string.h>
 #include <cairo/cairo.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <errno.h>
 
 // Draw text on an image using Cairo
 void draw_text_on_image(Image* image, const char* text, int x, int y, const char* font_family, int font_size, double r, double g, double b) {
@@ -200,6 +203,26 @@ int main(int argc, char* argv[]) {
     printf("Processing images in folder: %s\n", folder_path);
     printf("=========================================\n");
 
+    // Create output directory for predictions
+    char output_dir[1024];
+    // Remove trailing slash from folder_path if present
+    char clean_path[1024];
+    strcpy(clean_path, folder_path);
+    if (clean_path[strlen(clean_path) - 1] == '/') {
+        clean_path[strlen(clean_path) - 1] = '\0';
+    }
+    snprintf(output_dir, sizeof(output_dir), "%s/cells_predicted", clean_path);
+
+    // Create the directory if it doesn't exist
+    if (mkdir(output_dir, 0755) != 0 && errno != EEXIST) {
+        fprintf(stderr, "Error: Cannot create output directory %s\n", output_dir);
+        closedir(dir);
+        cnn_free(model);
+        return 1;
+    }
+
+    printf("Saving predictions to: %s\n", output_dir);
+
     // Set model to evaluation mode
     cnn_eval(model);
 
@@ -294,7 +317,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        char predicted_letter = 'A' + predicted_class;
+        char predicted_letter = 'A' + predicted_class +1 ;
         float percentage = max_prob * 100.0f;
 
         printf("  Prediction: %c (%.2f%% confidence)\n", predicted_letter, percentage);
@@ -321,7 +344,7 @@ int main(int argc, char* argv[]) {
         if (dot_pos) *dot_pos = '\0'; // Remove extension
 
         snprintf(output_path, sizeof(output_path), "%s/%s_pred_%c_%.0f%%.png",
-                folder_path, base_name, predicted_letter, percentage);
+                output_dir, base_name, predicted_letter, percentage);
         save_image(output_path, &original_img);
 
         printf("  Saved: %s\n", output_path);

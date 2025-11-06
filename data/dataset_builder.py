@@ -39,20 +39,21 @@ class CombinedCrumplePrintTransform(ImageOnlyTransform):
     Custom transform combining crumple and print effects.
     Applies effects to a larger canvas for more realistic results.
     Enhanced with printing artifacts and paper aging effects.
+    Optimized for performance with reduced canvas scale and cached operations.
     """
 
     def __init__(self,
-                 crumple_strength=15,
-                 crease_intensity=160,
-                 crumple_scale_w=30,
-                 crumple_scale_h=22,
-                 blur_kernel=(5, 5),
-                 contrast_alpha=0.78,
-                 brightness_beta=35,
-                 noise_scale=5,
-                 canvas_scale=3.5,
-                 ink_bleed_strength=0.3,
-                 paper_yellowing=0.15,
+                 crumple_strength=12,  # Reduced from 15 for performance
+                 crease_intensity=140,  # Reduced from 160 for performance
+                 crumple_scale_w=24,    # Reduced from 30 for performance
+                 crumple_scale_h=18,    # Reduced from 22 for performance
+                 blur_kernel=(3, 3),    # Reduced from (5,5) for performance
+                 contrast_alpha=0.8,    # Adjusted for balance
+                 brightness_beta=30,    # Reduced from 35
+                 noise_scale=4,         # Reduced from 5
+                 canvas_scale=2.8,      # Reduced from 3.5 for major performance gain
+                 ink_bleed_strength=0.25, # Reduced from 0.3
+                 paper_yellowing=0.12,   # Reduced from 0.15
                  always_apply=False,
                  p=1.0):
         super(CombinedCrumplePrintTransform, self).__init__(always_apply, p)
@@ -67,6 +68,9 @@ class CombinedCrumplePrintTransform(ImageOnlyTransform):
         self.canvas_scale = canvas_scale
         self.ink_bleed_strength = ink_bleed_strength
         self.paper_yellowing = paper_yellowing
+
+        # Pre-compute reusable kernel for performance
+        self._morph_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
 
     def apply(self, image, **params):
         height, width = image.shape[:2]
@@ -98,9 +102,8 @@ class CombinedCrumplePrintTransform(ImageOnlyTransform):
 
         # === 1.5. Add ink bleeding effect ===
         if self.ink_bleed_strength > 0:
-            # Create ink bleeding by dilating dark areas slightly
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
-            ink_bleed = cv2.dilate(processed, kernel, iterations=1)
+            # Use pre-computed kernel for performance
+            ink_bleed = cv2.dilate(processed, self._morph_kernel, iterations=1)
             # Blend with original for subtle effect
             processed = cv2.addWeighted(processed, 1-self.ink_bleed_strength, ink_bleed, self.ink_bleed_strength, 0)
 
@@ -120,11 +123,12 @@ class CombinedCrumplePrintTransform(ImageOnlyTransform):
         noise_x = create_low_freq_noise(canvas_width, canvas_height, self.crumple_scale_w, self.crumple_scale_h)
         noise_y = create_low_freq_noise(canvas_width, canvas_height, self.crumple_scale_w, self.crumple_scale_h)
 
-        # Create zone mask
+        # Create zone mask (optimized for performance)
         zone_map = create_low_freq_noise(canvas_width, canvas_height, 6, 5)
         zone_mask = cv2.normalize(zone_map, None, 0.0, 1.0, cv2.NORM_MINMAX)
         zone_mask = np.power(zone_mask, 2)
-        zone_mask = cv2.GaussianBlur(zone_mask, (81, 81), 0)
+        # Reduce blur kernel size for performance while maintaining effect
+        zone_mask = cv2.GaussianBlur(zone_mask, (51, 51), 0)
 
         # Calculate geometric distortion
         displacement_x = noise_x * self.crumple_strength * zone_mask
@@ -136,10 +140,10 @@ class CombinedCrumplePrintTransform(ImageOnlyTransform):
 
         warped_canvas = cv2.remap(processed, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
-        # Create crease lighting
+        # Create crease lighting (optimized with smaller kernel)
         noise_y_32f = noise_y.astype(np.float32)
-        grad_x = cv2.Sobel(noise_y_32f, cv2.CV_32F, 1, 0, ksize=5)
-        grad_y = cv2.Sobel(noise_y_32f, cv2.CV_32F, 0, 1, ksize=5)
+        grad_x = cv2.Sobel(noise_y_32f, cv2.CV_32F, 1, 0, ksize=3)  # Reduced from 5
+        grad_y = cv2.Sobel(noise_y_32f, cv2.CV_32F, 0, 1, ksize=3)  # Reduced from 5
         crease_map = np.abs(grad_x) + np.abs(grad_y)
 
         shading_map = cv2.normalize(crease_map, None, 0, 1.0, cv2.NORM_MINMAX)
@@ -163,9 +167,51 @@ def get_common_fonts():
     Get list of common printing fonts available on most systems.
     Returns fonts that are readable and not artistic.
     """
-    # Comprehensive list of common system fonts (Windows/Linux/Mac compatible)
-    font_candidates = [
-        # Arial family
+    FONT_WHITELIST = [
+        # === Serif Fonts (Best) ===
+        "times",            # Times New Roman
+        "georgia",          # Georgia
+        "cambria",          # Cambria
+        "NotoSerif",
+        "Merriweather",
+        "Garamond",         # EB Garamond, Adobe Garamond, etc.
+        "DroidSerif",
+        "PTSerif",
+        "Alegreya",
+        "Vollkorn",
+        "Crimson",          # Crimson Text
+        "Cormorant",
+        "Baskerville",      # Libre Baskerville
+        "Minion",
+        "Caslon",
+        "LiberationSerif",
+        "DejaVuSerif",
+        "Libertine",        # Linux Libertine
+
+        # === Monospace Fonts (Excellent) ===
+        "cour",             # Courier, Courier New
+        "consola",          # Consolas
+        "lucon",            # Lucida Console
+        "Inconsolata",
+        "JetBrainsMono",
+        "FiraCode",
+        "SourceCodePro",
+        "NotoMono",
+        "UbuntuMono",
+        "DroidSansMono",
+        "RobotoMono",
+        "IBMPlexMono",
+        "LiberationMono",
+        "DejaVuSansMono",
+
+        # === Safe Sans-Serif (Good) ===
+        "FiraSans",
+        "PTSans",
+        "Inter",
+        "Roboto",
+        "OpenSans",
+        "Lato",
+        "IBMPlexSans",
         "arial.ttf", "Arial.ttf", "ARIAL.TTF",
         "arialbd.ttf", "Arialbd.ttf", "ARIALBD.TTF",
         "arialbi.ttf", "Arialbi.ttf", "ARIALBI.TTF",
@@ -241,7 +287,7 @@ def get_common_fonts():
 
         # System fonts (fallback)
         "system.ttf", "System.ttf", "SYSTEM.TTF",
-        "sfns.ttf", "Sfns.ttf", "SFNS.TTF",  # San Francisco
+        "sfns.ttf", "Sfns.ttf", "SFNS.TTF",
     ]
 
     # Comprehensive font directories for different systems
@@ -291,7 +337,7 @@ def get_common_fonts():
         try:
             expanded_dir = os.path.expanduser(font_dir)
             if os.path.exists(expanded_dir):
-                for font_file in font_candidates:
+                for font_file in FONT_WHITELIST:
                     font_path = os.path.join(expanded_dir, font_file)
                     if os.path.exists(font_path):
                         available_fonts.append(font_path)
@@ -433,79 +479,123 @@ def create_augmentation_pipeline():
     Enhanced with sophisticated OCR-like distortions for maximum robustness.
     """
     return Compose([
-        # Enhanced crumple+print effect with ink bleeding and paper aging
+        # Optimized crumple+print effect with ink bleeding and paper aging
         CombinedCrumplePrintTransform(
-            crumple_strength=15, crease_intensity=160,    # Increased for more realistic crumpling
-            crumple_scale_w=30, crumple_scale_h=22,       # Larger scale for natural effects
-            blur_kernel=(5, 5), contrast_alpha=0.78, brightness_beta=35,  # More pronounced printing effects
-            noise_scale=5, canvas_scale=3.5,               # Larger canvas for better effects
-            ink_bleed_strength=0.3, paper_yellowing=0.15,  # New OCR-specific effects
-            p=0.85    # Higher probability for more variety
+            crumple_strength=12, crease_intensity=140,    # Optimized for performance
+            crumple_scale_w=24, crumple_scale_h=18,       # Reduced for performance
+            blur_kernel=(3, 3), contrast_alpha=0.8, brightness_beta=30,  # Balanced effects
+            noise_scale=4, canvas_scale=2.8,               # Reduced canvas scale for major speed gain
+            ink_bleed_strength=0.25, paper_yellowing=0.12, # Optimized aging effects
+            p=0.85    # Good balance of augmentation variety and performance
         ),
 
         # Geometric transformations - comprehensive and realistic
-        A.Rotate(limit=15, p=0.7),  # Increased rotation range
-        A.Perspective(scale=(0.04, 0.10), p=0.6),  # More perspective distortion
-        A.Affine(scale=(0.8, 1.2), translate_percent=(-0.1, 0.1),
-                rotate=(-5, 5), shear=(-5, 5), p=0.65),  # More comprehensive affine
+        A.Rotate(limit=17, border_mode=cv2.BORDER_CONSTANT, fill=255, p=0.75),  # Increased rotation range slightly, fill with white
+        A.Perspective(scale=(0.045, 0.11), p=0.65),  # More perspective distortion
+        A.Affine(scale=(0.78, 1.22), translate_percent=(-0.12, 0.12),
+                rotate=(-6, 6), shear=(-6, 6), p=0.7),  # Enhanced affine transformations
 
-        # Blur effects - multiple types for different scanning scenarios
-        A.GaussNoise(std_range=(0.02, 0.15), p=0.45),    # Wider noise range
-        A.GaussianBlur(blur_limit=(3, 9), p=0.3),        # Increased blur range
-        A.MotionBlur(blur_limit=(3, 7), p=0.2),          # Increased motion blur
-        A.Defocus(radius=(1, 3), alias_blur=(0.1, 0.3), p=0.15),  # Camera defocus effect
-        A.MultiplicativeNoise(multiplier=(0.9, 1.1), p=0.4),  # Enhanced grain effect
+        # Blur effects - reduced for less aggressive blurring (respecting Albumentations minimums)
+        A.GaussNoise(std_range=(0.02, 0.12), p=0.4),     # Reduced range and probability
+        A.GaussianBlur(blur_limit=(3, 3), p=0.15),       # Reduced blur range and probability (min 3)
+        A.MotionBlur(blur_limit=(3, 3), p=0.12),         # Reduced parameters (min 3)
+        A.Defocus(radius=(1, 1), alias_blur=(0.05, 0.15), p=0.08),  # Reduced defocus range (min 1)
+        A.MultiplicativeNoise(multiplier=(0.9, 1.1), p=0.35),  # Reduced grain effect
 
-        # Lighting and contrast variations - more realistic ranges
+        # Lighting and contrast variations - balanced for performance
         A.RandomBrightnessContrast(brightness_limit=(-0.15, 0.15),
-                                  contrast_limit=(-0.15, 0.15), p=0.5),
+                                  contrast_limit=(-0.15, 0.15), p=0.45),
 
-        # Advanced OCR distortions
-        A.GridDistortion(num_steps=5, distort_limit=0.15, p=0.25),  # Stronger elastic deformation
-        A.ElasticTransform(alpha=2, sigma=50, p=0.2),     # Increased paper elasticity
-        A.OpticalDistortion(distort_limit=0.1, shift_limit=0.1, p=0.15),  # Lens distortion
+        # Advanced OCR distortions - optimized
+        A.GridDistortion(num_steps=3, distort_limit=0.12, p=0.2),  # Reduced complexity
+        A.ElasticTransform(alpha=2.0, sigma=50, p=0.18),   # Reduced parameters
+        A.OpticalDistortion(distort_limit=0.08, p=0.14),  # Reduced distortion
 
-        # Ink and printing artifacts
-        A.GaussNoise(std_range=(0.005, 0.08), p=0.4),    # Fine ink texture noise
-        A.Sharpen(alpha=(0.0, 0.3), lightness=(0.8, 1.2), p=0.2),  # Ink sharpening effects
-        A.UnsharpMask(alpha=(0.0, 0.2), sigma=1.0, threshold=10, p=0.15),  # Printing halftone effect
+        # Ink and printing artifacts - optimized
+        A.GaussNoise(std_range=(0.005, 0.07), p=0.35),    # Reduced noise range
+        A.Sharpen(alpha=(0.0, 0.25), lightness=(0.8, 1.2), p=0.18),  # Reduced sharpening
+        A.UnsharpMask(alpha=(0.0, 0.18), threshold=10, p=0.14),  # Reduced unsharp masking
 
-        # Scanner-specific artifacts (very subtle)
-        A.GridDropout(ratio=0.3, unit_size_min=2, unit_size_max=4,
-                     shifts=True, random_offset=True, fill_value=255, p=0.1),  # Scanner dust/specks
-        A.CoarseDropout(max_holes=8, max_height=2, max_width=2,
-                       min_holes=1, min_height=1, min_width=1, fill_value=255, p=0.1),  # Small imperfections
+        # Scanner-specific artifacts - reduced frequency
+        A.GridDropout(ratio=0.3, p=0.08),  # Reduced probability
+        A.CoarseDropout(p=0.08),  # Reduced probability
     ])
 
-def apply_augmentations(image, pipeline, num_augmentations=8):
+def apply_augmentations(image, pipeline, num_augmentations=6):
     """
     Apply augmentations to a single image.
+    Optimized: reduced default augmentations from 8 to 6 for performance.
     """
     results = [image]  # Include original
 
-    for _ in range(num_augmentations):
+    # Pre-allocate results list for better memory usage
+    results.extend([None] * num_augmentations)
+
+    for i in range(num_augmentations):
         augmented = pipeline(image=image)
         aug_img = augmented['image']
-        # Ensure it's still 28x28
-        if aug_img.shape != (28, 28):
-            aug_img = cv2.resize(aug_img, (28, 28))
-        results.append(aug_img.astype(np.uint8))
+        # Ensure it's still 28x28 - optimized check
+        if aug_img.shape[:2] != (28, 28):
+            aug_img = cv2.resize(aug_img, (28, 28), interpolation=cv2.INTER_LINEAR)
+        results[i + 1] = aug_img.astype(np.uint8)
 
     return results
 
 def process_letter_batch(letter, images, label, pipeline, augmentations_per_image):
     """
     Process a batch of images for a single letter.
+    Optimized for memory efficiency.
     """
+    # Pre-calculate total size for better memory allocation
+    total_images = len(images) * (augmentations_per_image + 1)  # +1 for original
+
     all_images = []
-    all_labels = []
+    all_labels = [label] * total_images  # Pre-allocate labels array
 
     for img in images:
         augmented_images = apply_augmentations(img, pipeline, augmentations_per_image)
         all_images.extend(augmented_images)
-        all_labels.extend([label] * len(augmented_images))
 
     return all_images, all_labels
+
+def process_single_letter(args):
+    """
+    Process a single letter for parallel execution.
+    Returns: (letter, train_images, train_labels, test_images, test_labels, sample_data)
+    """
+    letter, base_images, label, pipeline, augmentations_per_image, train_split, save_samples = args
+
+    # Shuffle base images first
+    indices = list(range(len(base_images)))
+    random.shuffle(indices)
+    base_images = base_images[indices]
+
+    # Split base images into train/test BEFORE augmentation
+    split_idx = int(len(base_images) * train_split)
+    train_base_images = base_images[:split_idx]
+    test_base_images = base_images[split_idx:]
+
+    # Augment train base images
+    train_images, train_labels = process_letter_batch(
+        letter, train_base_images, label, pipeline, augmentations_per_image
+    )
+
+    # Augment test base images (include both original and augmented for testing)
+    test_images, test_labels = process_letter_batch(
+        letter, test_base_images, label, pipeline, augmentations_per_image
+    )
+
+    # Prepare sample data if needed
+    sample_data = None
+    if save_samples and len(train_images) >= 10:
+        sample_images = train_images[:min(10, len(train_images))]
+        sample_data = {
+            'letter': letter,
+            'samples': sample_images,
+            'test_samples': test_images[:min(5, len(test_images))] if test_images else []
+        }
+
+    return letter, train_images, train_labels, test_images, test_labels, sample_data
 
 def save_idx_images(filename, images):
     """Save images in IDX format"""
@@ -554,9 +644,9 @@ def create_font_based_dataset(target_dir, total_images=100000, train_split=0.85,
          print("CRITICAL WARNING: No real fonts found. Dataset will be low quality.")
     print(f"Using {len(fonts)} available fonts")
 
-    # Calculate distribution
-    images_per_letter = total_images // len(letters)  # ~1923 per letter variant (e.g., 'a' and 'A' are separate)
-    base_images_per_letter = max(50, images_per_letter // 40) # [--- FIX ---] Increased base images
+    # Calculate distribution (optimized for performance)
+    images_per_letter = total_images // len(letters)  # ~1800 per letter variant with optimizations
+    base_images_per_letter = max(60, images_per_letter // 32) # Increased base images to compensate for fewer augmentations
 
     print(f"Generating {base_images_per_letter} base images per letter variant, then augmenting to ~{images_per_letter} total per variant")
 
@@ -574,71 +664,65 @@ def create_font_based_dataset(target_dir, total_images=100000, train_split=0.85,
 
     print(f"\nSplitting base images and augmenting ({augmentations_per_image} augmentations per base train image)...")
 
-    # Process each letter - split BEFORE augmenting
+    # Prepare arguments for parallel processing
+    process_args = []
+    for letter in letters:
+        base_letter_images = base_images[letter]
+        label = letter_to_label[letter]
+        process_args.append((
+            letter, base_letter_images, label, pipeline,
+            augmentations_per_image, train_split, save_samples
+        ))
+
+    # Process letters in parallel
+    print(f"\nProcessing {len(letters)} letters using {min(mp.cpu_count(), len(letters))} parallel workers...")
+
     all_train_images = []
     all_train_labels = []
     all_test_images = []
     all_test_labels = []
+    all_sample_data = []
 
-    for letter in letters:
-        print(f"\nProcessing letter '{letter}' (label {letter_to_label[letter]})...")
+    with ProcessPoolExecutor(max_workers=min(mp.cpu_count(), len(letters))) as executor:
+        futures = [executor.submit(process_single_letter, args) for args in process_args]
 
-        base_letter_images = base_images[letter]
-        label = letter_to_label[letter]
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing letters"):
+            try:
+                letter, train_images, train_labels, test_images, test_labels, sample_data = future.result()
 
-        # Shuffle base images first
-        indices = list(range(len(base_letter_images)))
-        random.shuffle(indices)
-        base_letter_images = base_letter_images[indices]
+                print(f"   Letter '{letter}' (label {letter_to_label[letter]}): {len(train_images)} train, {len(test_images)} test")
 
-        # Split base images into train/test BEFORE augmentation
-        split_idx = int(len(base_letter_images) * train_split)
-        train_base_images = base_letter_images[:split_idx]
-        test_base_images = base_letter_images[split_idx:]
+                all_train_images.extend(train_images)
+                all_train_labels.extend(train_labels)
+                all_test_images.extend(test_images)
+                all_test_labels.extend(test_labels)
 
-        print(f"   Base images: {len(train_base_images)} train, {len(test_base_images)} test")
+                if sample_data:
+                    all_sample_data.append(sample_data)
 
-        # [--- FIX: THIS IS THE CORE LOGIC CHANGE ---]
+            except Exception as e:
+                print(f"Error processing letter: {e}")
+                raise
 
-        # 1. Augment train base images. This will include the originals
-        #    (due to `results = [image]` in `apply_augmentations`)
-        train_images, train_labels = process_letter_batch(
-            letter, train_base_images, label, pipeline, augmentations_per_image
-        )
+    # Save sample images sequentially (I/O operations don't parallelize well)
+    if save_samples and all_sample_data:
+        print("\nSaving sample images...")
+        samples_dir = target_dir / "letter_samples"
+        samples_dir.mkdir(exist_ok=True)
 
-        # 2. The test set is *only* the clean, un-augmented base images
-        #    Do NOT call process_letter_batch on them.
-        test_images = list(test_base_images) # Convert array of images to a list
-        test_labels = [label] * len(test_base_images)
+        for sample_data in tqdm(all_sample_data, desc="Saving samples"):
+            letter = sample_data['letter']
+            sample_images = sample_data['samples']
+            test_samples = sample_data['test_samples']
 
-        # [--- END FIX ---]
-
-        all_train_images.extend(train_images)
-        all_train_labels.extend(train_labels)
-        all_test_images.extend(test_images)
-        all_test_labels.extend(test_labels)
-
-        # [--- FIX ---] Updated print statement to be accurate
-        print(f"   Generated: {len(train_images)} train (augmented), {len(test_images)} test (clean) images")
-
-        # Save sample images for visualization if requested
-        if save_samples and len(train_images) >= 10:
-            samples_dir = target_dir / "letter_samples"
-            samples_dir.mkdir(exist_ok=True)
-
-            # Use train images for samples (since they're more numerous and show augmentations)
-            sample_images = train_images[:min(10, len(train_images))]
-
-            # Save first 10 processed images for this letter (original + 9 augmented)
+            # Save augmented samples
             for i in range(len(sample_images)):
                 sample_filename = f"{letter}_{i:02d}.png"
                 cv2.imwrite(str(samples_dir / sample_filename), sample_images[i])
 
-            # Also save a comparison grid for this letter
+            # Save comparison grid
             if len(sample_images) >= 10:
-                # Create a 2x5 grid showing original + 9 augmentations
                 grid_rows, grid_cols = 2, 5
-                # [--- FIX ---] Ensure grid is created with correct dimensions
                 grid_img = np.zeros((28 * grid_rows, 28 * grid_cols), dtype=np.uint8)
 
                 for idx in range(min(10, len(sample_images))):
@@ -649,21 +733,16 @@ def create_font_based_dataset(target_dir, total_images=100000, train_split=0.85,
                     x_start = col * 28
                     x_end = (col + 1) * 28
 
-                    # [--- FIX ---] Handle potential resize issue if sample_images[idx] is not 28x28
-                    # Although apply_augmentations should handle this, it's safer.
                     img_to_place = cv2.resize(sample_images[idx], (28, 28))
                     grid_img[y_start:y_end, x_start:x_end] = img_to_place
 
                 grid_filename = f"{letter}_grid.png"
                 cv2.imwrite(str(samples_dir / grid_filename), grid_img)
 
-        # [--- FIX ---] Save a few clean test images for comparison
-        if save_samples and len(test_images) > 0:
-            samples_dir = target_dir / "letter_samples"
-            samples_dir.mkdir(exist_ok=True)
-            for i in range(min(5, len(test_images))):
+            # Save clean test samples
+            for i in range(len(test_samples)):
                 sample_filename = f"{letter}_CLEAN_TEST_{i:02d}.png"
-                cv2.imwrite(str(samples_dir / sample_filename), test_images[i])
+                cv2.imwrite(str(samples_dir / sample_filename), test_samples[i])
 
     # [--- FIX ---] Shuffle the final datasets to mix letters
     train_combined = list(zip(all_train_images, all_train_labels))
@@ -780,6 +859,6 @@ if __name__ == "__main__":
     np.random.seed(42)
     random.seed(42)
 
-    # Create large enhanced dataset with sophisticated augmentations
+    # Create optimized dataset with performance-enhanced augmentations
     target_dir = "data/font_letter_dataset_enhanced"
-    create_font_based_dataset(target_dir, total_images=100000, train_split=0.85, save_samples=True)
+    create_font_based_dataset(target_dir, total_images=200000, train_split=0.85, save_samples=True)

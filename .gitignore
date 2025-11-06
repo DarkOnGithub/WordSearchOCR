@@ -133,4 +133,5 @@ build
 .bak
 .mtc
 build/
-!data/*.idx
+data/*.npy
+data/*.idx

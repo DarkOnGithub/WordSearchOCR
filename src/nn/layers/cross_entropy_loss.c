@@ -82,7 +82,7 @@ Tensor* softmax(Tensor* input) {
             }
         }
 
-        // Compute exp(x - max) and sum
+        // Compute exp(x - max) and sum with numerical stability
         __m256 sum_vec = _mm256_setzero_ps();
         int idx_base = b * num_classes;
 
@@ -95,6 +95,9 @@ Tensor* softmax(Tensor* input) {
             float exp_vals[8];
             _mm256_storeu_ps(exp_vals, shifted_vec);
             for (int k = 0; k < 8; k++) {
+                // Clamp to prevent overflow/underflow
+                if (exp_vals[k] > 80.0f) exp_vals[k] = 80.0f;
+                if (exp_vals[k] < -80.0f) exp_vals[k] = -80.0f;
                 exp_vals[k] = expf(exp_vals[k]);
             }
 
@@ -106,9 +109,18 @@ Tensor* softmax(Tensor* input) {
         float sum_exp = horizontal_sum_avx(sum_vec);
 
         for (; j < num_classes; j++) {
-            float exp_val = expf(input->data[idx_base + j] - max_val);
+            float shifted_val = input->data[idx_base + j] - max_val;
+            // Clamp to prevent overflow/underflow
+            if (shifted_val > 80.0f) shifted_val = 80.0f;
+            if (shifted_val < -80.0f) shifted_val = -80.0f;
+            float exp_val = expf(shifted_val);
             output->data[idx_base + j] = exp_val;
             sum_exp += exp_val;
+        }
+
+        // Ensure sum_exp is not zero (shouldn't happen with clamping, but safety check)
+        if (sum_exp < 1e-20f) {
+            sum_exp = 1e-20f;
         }
 
         // Normalize by sum
@@ -153,7 +165,6 @@ CrossEntropyOutput* cross_entropy_loss_forward(CrossEntropyLoss* loss, Tensor* i
         return NULL;
     }
 
-
     Tensor* softmax_output = softmax(input);
     if (!softmax_output) {
         return NULL;
@@ -164,7 +175,7 @@ CrossEntropyOutput* cross_entropy_loss_forward(CrossEntropyLoss* loss, Tensor* i
     for (int b = 0; b < batch_size; b++) {
         int target_class = (int)targets->data[b];
         if (target_class < 0 || target_class >= num_classes) {
-            fprintf(stderr, "Error: Target class %d out of range [0, %d)\n", target_class, num_classes);
+            fprintf(stderr, "Error: Target class %d out of range [0, %d]\n", target_class, num_classes - 1);
             tensor_free(softmax_output);
             return NULL;
         }

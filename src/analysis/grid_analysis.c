@@ -473,15 +473,16 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
     }
 
     Contours *filtered_horiz =
-        filterContoursByLength(horiz_contours, grid_width * 0.2);
+        filterContoursByLength(horiz_contours, grid_width * 0.1);
     freeContours(horiz_contours);
 
     Contours *filtered_vert =
-        filterContoursByLength(vert_contours, grid_height * 0.2);
+        filterContoursByLength(vert_contours, grid_height * 0.1);
     freeContours(vert_contours);
 
     Contours *processed_horiz = merge_colinear_segments_and_extend(filtered_horiz, 1, grid_width);
     Contours *processed_vert = merge_colinear_segments_and_extend(filtered_vert, 0, grid_height);
+
 
     if (!processed_horiz || !processed_vert)
     {
@@ -517,12 +518,11 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
     //! WARNING: This is a hardcoded value for the max grid size.
     if (grid_size_lines > 21)
         grid_size_lines = 21;
+    *num_rows = detected_horiz - 1;
+    *num_cols = detected_vert - 1;
 
-    *num_rows = grid_size_lines - 1;
-    *num_cols = grid_size_lines - 1;
-
-    *y_boundaries = (int *)malloc(sizeof(int) * grid_size_lines);
-    *x_boundaries = (int *)malloc(sizeof(int) * grid_size_lines);
+    *y_boundaries = (int *)malloc(sizeof(int) * detected_horiz);
+    *x_boundaries = (int *)malloc(sizeof(int) * detected_vert);
     if (!*y_boundaries || !*x_boundaries)
     {
         if (*y_boundaries)
@@ -559,9 +559,9 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
         // expected
         printf("Filtered horizontal count: %d\n", filtered_horiz->count);
         printf("Grid size lines: %d\n", grid_size_lines);
-        if (filtered_horiz->count >= grid_size_lines)
+        if (filtered_horiz->count >= detected_horiz)
         {
-            for (int i = 0; i < grid_size_lines; i++)
+            for (int i = 0; i < detected_horiz; i++)
             {
                 Rect rect;
                 boundingRect(&filtered_horiz->contours[i], &rect);
@@ -576,14 +576,14 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
                 Rect rect;
                 boundingRect(&filtered_horiz->contours[i], &rect);
                 int target_idx = (int)((float)i / (filtered_horiz->count - 1) *
-                                       (grid_size_lines - 1));
-                if (target_idx < grid_size_lines)
+                                       (detected_horiz - 1));
+                if (target_idx < detected_horiz)
                 {
                     (*y_boundaries)[target_idx] = rect.y;
                 }
             }
             // Fill in missing boundaries by interpolation
-            for (int i = 0; i < grid_size_lines; i++)
+            for (int i = 0; i < detected_horiz; i++)
             {
                 if (i > 0 && (*y_boundaries)[i] == 0)
                 {
@@ -597,7 +597,7 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
                             break;
                         }
                     }
-                    for (int j = i + 1; j < grid_size_lines; j++)
+                    for (int j = i + 1; j < detected_horiz; j++)
                     {
                         if ((*y_boundaries)[j] != 0)
                         {
@@ -621,7 +621,7 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
     else
     {
         // No horizontal lines detected, create evenly spaced boundaries
-        for (int i = 0; i < grid_size_lines; i++)
+        for (int i = 0; i < detected_horiz; i++)
         {
             (*y_boundaries)[i] = (i * grid_height) / (*num_rows);
         }
@@ -651,10 +651,10 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
 
         // Extract X boundaries - distribute evenly if we have fewer than
         // expected
-        if (filtered_vert->count >= grid_size_lines)
+        if (filtered_vert->count >= detected_vert)
         {
-            // If we have enough lines, use the first grid_size_lines
-            for (int i = 0; i < grid_size_lines; i++)
+            // If we have enough lines, use all detected lines
+            for (int i = 0; i < detected_vert; i++)
             {
                 Rect rect;
                 boundingRect(&filtered_vert->contours[i], &rect);
@@ -669,13 +669,13 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
                 Rect rect;
                 boundingRect(&filtered_vert->contours[i], &rect);
                 int target_idx = (int)((float)i / (filtered_vert->count - 1) *
-                                       (grid_size_lines - 1));
-                if (target_idx < grid_size_lines)
+                                       (detected_vert - 1));
+                if (target_idx < detected_vert)
                 {
                     (*x_boundaries)[target_idx] = rect.x;
                 }
             }
-            for (int i = 0; i < grid_size_lines; i++)
+            for (int i = 0; i < detected_vert; i++)
             {
                 if (i > 0 && (*x_boundaries)[i] == 0)
                 {
@@ -688,7 +688,7 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
                             break;
                         }
                     }
-                    for (int j = i + 1; j < grid_size_lines; j++)
+                    for (int j = i + 1; j < detected_vert; j++)
                     {
                         if ((*x_boundaries)[j] != 0)
                         {
@@ -711,7 +711,7 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
     }
     else
     {
-        for (int i = 0; i < grid_size_lines; i++)
+        for (int i = 0; i < detected_vert; i++)
         {
             (*x_boundaries)[i] = (i * grid_width) / (*num_cols);
         }
@@ -722,7 +722,7 @@ int extract_cell_boundaries_from_lines(const Image *horizontal_lines,
 
     printf(
         "Final boundaries: %d rows (%d boundaries), %d cols (%d boundaries)\n",
-        *num_rows, grid_size_lines, *num_cols, grid_size_lines);
+        *num_rows, detected_horiz, *num_cols, detected_vert);
 
     return 1;
 }

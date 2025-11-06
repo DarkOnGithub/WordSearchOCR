@@ -420,7 +420,7 @@ int main() {
     setup_optimizer_scheduler(model);
 
     // Training parameters
-    int num_epochs = 6;
+    int num_epochs = 10;
     float best_accuracy = 0.0f;
     int patience = 10;  // More patience for deeper model
     int patience_counter = 0;
@@ -500,7 +500,6 @@ int main() {
             float batch_acc = calculate_accuracy(predictions, targets_adjusted) * 100.0f;  // Convert to percentage
             correct_train += (int)(batch_acc * batch->data->shape[0] / 100.0f);
             total_train_samples += batch->data->shape[0];
-
             clock_t batch_end = clock();  // End timing
             float time_per_batch = (float)(batch_end - batch_start) / CLOCKS_PER_SEC * 100.0f;  // Convert to milliseconds
 
@@ -511,17 +510,14 @@ int main() {
             batch_losses[batch_idx] = batch_loss;
             batch_accuracies[batch_idx] = batch_acc;
             batch_times[batch_idx] = time_per_batch;
-
             tensor_free(predictions);
             cnn_forward_result_free(forward_result);
             tensor_free(input_normalized);
             tensor_free(targets_adjusted);
-
             // Update progress bar
             float current_avg_loss = epoch_loss / total_train_samples;
             float current_avg_acc = (float)correct_train / total_train_samples * 100.0f;
             char prefix[32];
-            sprintf(prefix, "Epoch %d/%d", epoch + 1, num_epochs);
             print_progress_bar(batch_idx + 1, train_dataset->num_batches, prefix, current_avg_loss, current_avg_acc, time_per_batch, total_elapsed_time);
         }
 

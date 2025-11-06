@@ -165,7 +165,14 @@ int process_wordsearch_image(const char *image_path,
     }
     else
     {
-        cpy_image(&grid_image, &text_region);
+        // Extract text region from original image like letter-based detection
+        if (!determine_text_region(&original_image, grid_bounds.x, grid_bounds.y,
+                                   grid_bounds.width, grid_bounds.height, NULL,
+                                   &text_region, NULL, NULL))
+        {
+            fprintf(stderr, "Failed to determine text region in line detection\n");
+            return 1;
+        }
     }
 
     save_image("step_08_text_region.png", &text_region);

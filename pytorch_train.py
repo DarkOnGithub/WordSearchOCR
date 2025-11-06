@@ -8,77 +8,122 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
-import time
-from pathlib import Path
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from PIL import Image
 import os
 
-class LetterCNN(nn.Module):
-    """Improved CNN architecture with bottleneck blocks"""
+# Enable TensorFloat32 for better performance on Ampere+ GPUs
+torch.set_float32_matmul_precision('high')
 
+# Reduce inductor autotuning aggressiveness to avoid SM count warnings
+os.environ['TORCHINDUCTOR_MAX_AUTOTUNE'] = '1'  # Reduce autotuning
+os.environ['TORCHINDUCTOR_MAX_AUTOTUNE_GEMM_BACKENDS'] = 'ATEN'  # Use simpler GEMM backend
+
+@torch.compile
+class LetterCNN_v3_Leaky(nn.Module):
     def __init__(self):
-        super(LetterCNN, self).__init__()
+        super(LetterCNN_v3_Leaky, self).__init__()
 
-        # Block 1: 28x28 -> 14x14 -> 14x14 -> 14x14
-        self.conv1a = nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1)    # 1->32
-        self.conv1b = nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1)   # 32->32
-        self.conv1c = nn.Conv2d(32, 64, kernel_size=1, stride=1, padding=0)   # 32->64 (1x1)
+        # === CHANGED THIS ===
+        # Use SiLU (Swish) activation. It's modern and often performs well.
+        # Its C implementation is just x * (1 / (1 + exp(-x)))
+        self.activation = nn.SiLU()
 
-        # Block 2: 14x14 -> 7x7 -> 7x7 -> 7x7
-        self.conv2a = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)   # 64->64
-        self.conv2b = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)   # 64->64
-        self.conv2c = nn.Conv2d(64, 128, kernel_size=1, stride=1, padding=0)  # 64->128 (1x1)
+        # Block 1: 3x3 -> 1x1 (Input: 1x28x28, Output: 64x14x14)
+        self.conv1_3x3 = nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1)
+        self.bn1_3x3 = nn.BatchNorm2d(32)
+        self.conv1_1x1 = nn.Conv2d(32, 64, kernel_size=1, stride=1, padding=0)
+        self.bn1_1x1 = nn.BatchNorm2d(64)
+        # === ADDED THIS ===
+        # Shortcut to match channel dimensions (1 -> 64) for the residual connection
+        self.shortcut1 = nn.Sequential(
+            nn.Conv2d(1, 64, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(64)
+        )
 
-        # Block 3: 7x7 -> 3x3 -> 3x3 -> 3x3
-        self.conv3a = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1) # 128->128
-        self.conv3b = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1) # 128->128
-        self.conv3c = nn.Conv2d(128, 256, kernel_size=1, stride=1, padding=0) # 128->256 (1x1)
+        # Block 2: 3x3 -> 1x1 (Input: 64x14x14, Output: 128x7x7)
+        self.conv2_3x3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        self.bn2_3x3 = nn.BatchNorm2d(64)
+        self.conv2_1x1 = nn.Conv2d(64, 128, kernel_size=1, stride=1, padding=0)
+        self.bn2_1x1 = nn.BatchNorm2d(128)
+        # === ADDED THIS ===
+        # Shortcut to match channel dimensions (64 -> 128)
+        self.shortcut2 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(128)
+        )
 
-        # Max pooling layers (applied after each block)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        # Block 3: 3x3 -> 1x1 (Input: 128x7x7, Output: 256x1x1)
+        self.conv3_3x3 = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)
+        self.bn3_3x3 = nn.BatchNorm2d(128)
+        self.conv3_1x1 = nn.Conv2d(128, 256, kernel_size=1, stride=1, padding=0)
+        self.bn3_1x1 = nn.BatchNorm2d(256)
+        # === ADDED THIS ===
+        # Shortcut to match channel dimensions (128 -> 256)
+        self.shortcut3 = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm2d(256)
+        )
 
-        # Dropout layers (reduced rates for deeper network)
-        self.dropout_conv = nn.Dropout2d(0.15)  # Reduced from 0.25
-        self.dropout_fc = nn.Dropout(0.4)       # Reduced from 0.5
+        # Pooling layers (unchanged)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2) # 28x28 -> 14x14
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2) # 14x14 -> 7x7
+        self.gap = nn.AdaptiveAvgPool2d((1, 1))           # 7x7 -> 1x1
 
-        # Fully connected layers (improved capacity distribution)
-        # After 3 conv+pool+blocks: 28->14->7->3, so 256*3*3 = 2304
-        self.fc1 = nn.Linear(256 * 3 * 3, 128)  # Reduced from 256 to 128
-        self.fc2 = nn.Linear(128, 26)           # 26 classes (A-Z)
+        # Dropout (unchanged)
+        self.dropout_conv = nn.Dropout2d(0.10)
+        self.dropout_fc = nn.Dropout(0.25)
+
+        # Fully connected layers (unchanged)
+        self.fc1 = nn.Linear(256, 128)
+        self.fc2 = nn.Linear(128, 26)
 
     def forward(self, x):
-        # Block 1: Expansion -> Processing -> Compression
-        x = torch.relu(self.conv1a(x))      # 28x28, 1->32
-        x = torch.relu(self.conv1b(x))      # 28x28, 32->32
-        x = torch.relu(self.conv1c(x))      # 28x28, 32->64
-        x = self.pool(x)                    # 28x28 -> 14x14
+        # --- Block 1: 28x28 -> 14x14 ---
+        identity1 = self.shortcut1(x) # Project shortcut
+
+        # Main path
+        x_out = self.activation(self.bn1_3x3(self.conv1_3x3(x)))
+        x_out = self.bn1_1x1(self.conv1_1x1(x_out)) # <-- NO ACTIVATION HERE
+
+        # Add & Activate
+        x = self.activation(x_out + identity1) # <-- APPLY ACTIVATION AFTER ADD
+
+        x = self.pool1(x)
         x = self.dropout_conv(x)
 
-        # Block 2: Expansion -> Processing -> Compression
-        x = torch.relu(self.conv2a(x))      # 14x14, 64->64
-        x = torch.relu(self.conv2b(x))      # 14x14, 64->64
-        x = torch.relu(self.conv2c(x))      # 14x14, 64->128
-        x = self.pool(x)                    # 14x14 -> 7x7
+        # --- Block 2: 14x14 -> 7x7 ---
+        identity2 = self.shortcut2(x) # Project shortcut
+
+        # Main path
+        x_out = self.activation(self.bn2_3x3(self.conv2_3x3(x)))
+        x_out = self.bn2_1x1(self.conv2_1x1(x_out)) # <-- NO ACTIVATION HERE
+
+        # Add & Activate
+        x = self.activation(x_out + identity2) # <-- APPLY ACTIVATION AFTER ADD
+
+        x = self.pool2(x)
         x = self.dropout_conv(x)
 
-        # Block 3: Expansion -> Processing -> Compression
-        x = torch.relu(self.conv3a(x))      # 7x7, 128->128
-        x = torch.relu(self.conv3b(x))      # 7x7, 128->128
-        x = torch.relu(self.conv3c(x))      # 7x7, 128->256
-        x = self.pool(x)                    # 7x7 -> 3x3
-        x = self.dropout_conv(x)
+        # --- Block 3: 7x7 -> 1x1 ---
+        identity3 = self.shortcut3(x) # Project shortcut
 
-        # Flatten
+        # Main path
+        x_out = self.activation(self.bn3_3x3(self.conv3_3x3(x)))
+        x_out = self.bn3_1x1(self.conv3_1x1(x_out)) # <-- NO ACTIVATION HERE
+
+        # Add & Activate
+        x = self.activation(x_out + identity3) # <-- APPLY ACTIVATION AFTER ADD
+
+        x = self.gap(x)
+
+        # --- Flatten & FC ---
         x = x.view(x.size(0), -1)
-
-        # FC layers with improved capacity
-        x = torch.relu(self.fc1(x))
+        x = self.activation(self.fc1(x))
         x = self.dropout_fc(x)
         x = self.fc2(x)
         return x
-
 class LetterDataset(Dataset):
     """PyTorch dataset for letter recognition"""
 
@@ -120,9 +165,9 @@ def train_model():
         print(f"CUDA version: {torch.version.cuda}")
 
     # Create model
-    model = LetterCNN().to(device)
+    model = LetterCNN_v3_Leaky().to(device)
     print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
-    print("Architecture: 3 bottleneck blocks (3 convs each) -> 2 FC layers")
+    print("Architecture: LetterCNN_v3_Leaky with BatchNorm, LeakyReLU, and GAP")
 
     # Loss and optimizer (matching C implementation)
     criterion = nn.CrossEntropyLoss()
@@ -148,7 +193,7 @@ def train_model():
     print(f"Test batches: {len(test_loader)}")
 
     # Training parameters
-    num_epochs = 10
+    num_epochs = 15
     best_accuracy = 0.0
 
     # Training history
@@ -167,8 +212,6 @@ def train_model():
         running_loss = 0.0
         correct_train = 0
         total_train = 0
-
-        epoch_start = time.time()
 
         # Use tqdm for training progress
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} [Train]", unit="batch")
@@ -212,8 +255,6 @@ def train_model():
         correct_test = 0
         total_test = 0
 
-        test_start = time.time()
-
         # Use tqdm for testing progress
         test_pbar = tqdm(test_loader, desc=f"Epoch {epoch+1}/{num_epochs} [Test]", unit="batch")
         with torch.no_grad():
@@ -233,9 +274,6 @@ def train_model():
         test_accuracy = 100 * correct_test / total_test
         test_accuracies.append(test_accuracy)
 
-        test_time = time.time() - test_start
-        epoch_time = time.time() - epoch_start
-
         test_pbar.close()
 
         # Save best model
@@ -254,7 +292,7 @@ def train_model():
 
     print("\n" + "="*50)
     print("Training completed!")
-    print(".2f")
+    print(f"Final accuracy: {best_accuracy:.2f}%")
 
     # Save final model
     torch.save(model.state_dict(), 'final_model_pytorch.pth')
@@ -295,7 +333,7 @@ def run_inference_on_cells(model_path='best_model_pytorch.pth', cells_dir=r"cell
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     # Load model
-    model = LetterCNN()
+    model = LetterCNN_v3_Leaky()
     model.load_state_dict(torch.load(model_path, weights_only=True))
     model.to(device)
     model.eval()
@@ -346,18 +384,13 @@ def run_inference_on_cells(model_path='best_model_pytorch.pth', cells_dir=r"cell
 
             # Save with prediction in filename only (no overlay)
             base_name = os.path.splitext(cell_file)[0]
-            output_filename = f"{base_name}_pred_{predicted_letter}_{confidence:.0f}%.png"
+            output_filename = f"{predicted_letter}_{np.random.randint(100000, 999999)}.png"
             output_path = os.path.join(output_dir, output_filename)
-
             original_image.save(output_path)
             processed_count += 1
-
         except Exception as e:
             print(f"Error processing {cell_file}: {e}")
             continue
-
-    print(f"Successfully processed {processed_count} cell images")
-    print(f"Results saved to {output_dir}/")
 
 if __name__ == "__main__":
     # Set random seeds for reproducibility
