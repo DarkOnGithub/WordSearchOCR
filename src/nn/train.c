@@ -18,21 +18,6 @@ double get_wall_time_ms() {
     return (double)tv.tv_sec * 1000.0 + (double)tv.tv_usec / 1000.0;
 }
 
-// Format time duration into human-readable string
-void format_time_duration(double seconds, char* buffer, size_t buffer_size) {
-    if (seconds < 60) {
-        snprintf(buffer, buffer_size, "%.0fs", seconds);
-    } else if (seconds < 3600) {
-        int minutes = (int)(seconds / 60);
-        int secs = (int)(seconds) % 60;
-        snprintf(buffer, buffer_size, "%dm%ds", minutes, secs);
-    } else {
-        int hours = (int)(seconds / 3600);
-        int minutes = (int)((seconds - hours * 3600) / 60);
-        snprintf(buffer, buffer_size, "%dh%dm", hours, minutes);
-    }
-}
-
 // Simple progress bar function (tqdm-like)
 void print_progress_bar(int current, int total, const char* prefix, float loss, float acc, float time_per_batch, float total_elapsed_time) {
     const int bar_width = 30;
@@ -350,6 +335,89 @@ void save_batch_data(int epoch, int batch_idx, float batch_loss, float batch_acc
     }
 }
 
+// Structure to hold checkpoint metadata
+typedef struct {
+    int epoch;
+    float accuracy;
+    float best_accuracy;
+    char type[32];
+} CheckpointMetadata;
+
+// Load checkpoint metadata from meta file
+int load_checkpoint_metadata(const char* meta_filepath, CheckpointMetadata* metadata) {
+    FILE* f = fopen(meta_filepath, "r");
+    if (!f) {
+        return 0; // File doesn't exist
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "epoch=%d", &metadata->epoch) == 1) continue;
+        if (sscanf(line, "accuracy=%f", &metadata->accuracy) == 1) continue;
+        if (sscanf(line, "best_accuracy=%f", &metadata->best_accuracy) == 1) continue;
+        if (sscanf(line, "type=%31s", metadata->type) == 1) continue;
+    }
+
+    fclose(f);
+    return 1;
+}
+
+// Find the latest checkpoint available
+int find_latest_checkpoint(CheckpointMetadata* metadata) {
+    DIR* dir = opendir("training_data/checkpoints");
+    if (!dir) {
+        return 0; // Directory doesn't exist
+    }
+
+    struct dirent* entry;
+    char latest_meta_path[256] = "";
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strstr(entry->d_name, ".meta") != NULL) {
+            // Extract epoch from filename like "latest_checkpoint.bin.meta"
+            char* meta_pos = strstr(entry->d_name, ".meta");
+            if (meta_pos) {
+                char filename[256];
+                strncpy(filename, entry->d_name, meta_pos - entry->d_name);
+                filename[meta_pos - entry->d_name] = '\0';
+
+                if (strcmp(filename, "latest_checkpoint") == 0) {
+                    // Latest checkpoint - load it immediately
+                    sprintf(latest_meta_path, "training_data/checkpoints/%s", entry->d_name);
+                    if (load_checkpoint_metadata(latest_meta_path, metadata)) {
+                        closedir(dir);
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+
+    closedir(dir);
+    return 0;
+}
+
+// Load model weights from checkpoint directory
+int load_model_weights_from_checkpoint(CNN* model, int epoch) {
+    char weight_dir[256];
+    sprintf(weight_dir, "training_data/weights");
+
+    // Check if weights directory exists
+    DIR* dir = opendir(weight_dir);
+    if (!dir) {
+        fprintf(stderr, "Weights directory %s does not exist\n", weight_dir);
+        return 0;
+    }
+    closedir(dir);
+
+    // Use the existing cnn_load_weights function but redirect to checkpoint weights
+    // We need to temporarily change directory or modify the paths
+    // For now, we'll load from the regular weights directory since checkpoints save there too
+
+    printf("Loading model weights from epoch %d...\n", epoch);
+    return cnn_load_weights(model, epoch);
+}
+
 // Save all batch data for an epoch to a separate file
 void save_epoch_batch_data(int epoch, float* batch_losses, float* batch_accuracies, float* batch_times, int num_batches) {
     // Create batch_data directory if it doesn't exist
@@ -501,9 +569,31 @@ void setup_optimizer_scheduler(CNN* model) {
     cnn_free_parameters(params, grads);
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     printf("EMNIST Lowercase Letter CNN Training\n");
     printf("=====================================\n\n");
+
+    // Parse command line arguments
+    int force_resume = 0;  // 0 = ask user, 1 = force resume, -1 = force no resume
+    int custom_epochs = -1;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--resume") == 0) {
+            force_resume = 1;
+            printf("Forcing resume mode\n");
+        } else if (strcmp(argv[i], "--no-resume") == 0) {
+            force_resume = -1;
+            printf("Forcing fresh training mode\n");
+        } else if (strcmp(argv[i], "--epochs") == 0 && i + 1 < argc) {
+            custom_epochs = atoi(argv[i + 1]);
+            i++;  // Skip the next argument
+            printf("Custom epochs: %d\n", custom_epochs);
+        } else {
+            fprintf(stderr, "Unknown argument: %s\n", argv[i]);
+            fprintf(stderr, "Usage: %s [--resume|--no-resume] [--epochs N]\n", argv[0]);
+            return 1;
+        }
+    }
 
     // Seed random number generator
     srand(time(NULL));
@@ -534,7 +624,46 @@ int main() {
     // printf("Saving training images...\n");
     // save_all_images(train_dataset, "train_images");
 
+    // Check for existing checkpoints to resume training
+    CheckpointMetadata checkpoint_metadata;
+    int resume_training = 0;
+    int start_epoch = 0;
+    float loaded_best_accuracy = 0.0f;
 
+    if (find_latest_checkpoint(&checkpoint_metadata)) {
+        printf("Found existing checkpoint from epoch %d (accuracy: %.2f%%, best: %.2f%%)\n",
+               checkpoint_metadata.epoch, checkpoint_metadata.accuracy, checkpoint_metadata.best_accuracy);
+
+        if (force_resume == 1) {
+            resume_training = 1;
+            start_epoch = checkpoint_metadata.epoch;
+            loaded_best_accuracy = checkpoint_metadata.best_accuracy;
+            printf("Resuming training from epoch %d (--resume flag)\n\n", start_epoch);
+        } else if (force_resume == -1) {
+            resume_training = 0;
+            start_epoch = 0;
+            loaded_best_accuracy = 0.0f;
+            printf("Starting fresh training (--no-resume flag)\n\n");
+        } else {
+            // Ask user
+            printf("Resume training from this checkpoint? (y/n): ");
+            char response[10];
+            if (fgets(response, sizeof(response), stdin) && (response[0] == 'y' || response[0] == 'Y')) {
+                resume_training = 1;
+                start_epoch = checkpoint_metadata.epoch;
+                loaded_best_accuracy = checkpoint_metadata.best_accuracy;
+                printf("Resuming training from epoch %d\n\n", start_epoch);
+            } else {
+                printf("Starting fresh training\n\n");
+            }
+        }
+    } else {
+        if (force_resume == 1) {
+            fprintf(stderr, "Error: --resume specified but no checkpoint found\n");
+            return 1;
+        }
+        printf("No existing checkpoints found. Starting fresh training.\n\n");
+    }
 
     // Create model
     printf("Creating CNN model...\n");
@@ -546,9 +675,19 @@ int main() {
 
     setup_optimizer_scheduler(model);
 
+    // Load model weights if resuming training
+    if (resume_training) {
+        if (!load_model_weights_from_checkpoint(model, start_epoch)) {
+            fprintf(stderr, "Failed to load model weights from checkpoint. Starting fresh training.\n");
+            resume_training = 0;
+            start_epoch = 0;
+            loaded_best_accuracy = 0.0f;
+        }
+    }
+
     // Training parameters
-    int num_epochs = 12;
-    float best_accuracy = 0.0f;
+    int num_epochs = (custom_epochs > 0) ? custom_epochs : 12;
+    float best_accuracy = loaded_best_accuracy;  // Use loaded best accuracy if resuming
     int patience = 10;  // More patience for deeper model
     int patience_counter = 0;
 
@@ -558,29 +697,15 @@ int main() {
             train_dataset->total_samples, test_dataset->total_samples);
     save_training_metadata(num_epochs, 64, 1e-3f, 1e-4f, patience, dataset_info);
 
-    printf("Starting training for %d epochs...\n\n", num_epochs);
-
-    // Track overall training time for ETA calculation
-    double total_training_elapsed = 0.0;
+    printf("Starting training for %d epochs", num_epochs);
+    if (resume_training) {
+        printf(" (resuming from epoch %d)", start_epoch);
+    }
+    printf("...\n\n");
 
     // Training loop
-    for (int epoch = 0; epoch < num_epochs; epoch++) {
-        double epoch_start_time = get_wall_time_ms();
-
-        // Calculate overall training ETA
-        char overall_eta_str[32] = "";
-        if (epoch > 0) {
-            double avg_time_per_epoch = total_training_elapsed / epoch;
-            double remaining_epochs = num_epochs - epoch;
-            double eta_seconds = remaining_epochs * avg_time_per_epoch;
-            format_time_duration(eta_seconds, overall_eta_str, sizeof(overall_eta_str));
-        }
-
-        printf("Epoch %d/%d", epoch + 1, num_epochs);
-        if (strlen(overall_eta_str) > 0) {
-            printf(" - ETA: %s", overall_eta_str);
-        }
-        printf("\n");
+    for (int epoch = start_epoch; epoch < num_epochs; epoch++) {
+        printf("Epoch %d/%d\n", epoch + 1, num_epochs);
         printf("----------\n");
 
         cnn_train(model);
@@ -684,11 +809,6 @@ int main() {
         free(batch_losses);
         free(batch_accuracies);
         free(batch_times);
-
-        // Track epoch time for overall ETA
-        double epoch_end_time = get_wall_time_ms();
-        double epoch_duration = (epoch_end_time - epoch_start_time) / 1000.0; // Convert to seconds
-        total_training_elapsed += epoch_duration;
 
         // Step the scheduler
         cnn_step_scheduler(model);
