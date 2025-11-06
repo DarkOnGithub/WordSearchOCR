@@ -7,7 +7,15 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <stdint.h>
+#include <sys/time.h>
 #include "image/image.h"
+
+// Get current time in milliseconds (wall time)
+double get_wall_time_ms() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (double)tv.tv_sec * 1000.0 + (double)tv.tv_usec / 1000.0;
+}
 
 // Simple progress bar function (tqdm-like)
 void print_progress_bar(int current, int total, const char* prefix, float loss, float acc, float time_per_batch, float total_elapsed_time) {
@@ -447,7 +455,7 @@ int main() {
 
         // Train on all batches
         for (int batch_idx = 0; batch_idx < train_dataset->num_batches; batch_idx++) {
-            clock_t batch_start = clock();  // Start timing
+            double batch_start = get_wall_time_ms();  // Start timing
 
             Batch* batch = &train_dataset->batches[batch_idx];
 
@@ -500,8 +508,8 @@ int main() {
             float batch_acc = calculate_accuracy(predictions, targets_adjusted) * 100.0f;  // Convert to percentage
             correct_train += (int)(batch_acc * batch->data->shape[0] / 100.0f);
             total_train_samples += batch->data->shape[0];
-            clock_t batch_end = clock();  // End timing
-            float time_per_batch = (float)(batch_end - batch_start) / CLOCKS_PER_SEC * 100.0f;  // Convert to milliseconds
+            double batch_end = get_wall_time_ms();  // End timing
+            float time_per_batch = (float)(batch_end - batch_start);  // Already in milliseconds
 
             // Accumulate total elapsed time (convert to seconds)
             total_elapsed_time += time_per_batch / 1000.0f;
