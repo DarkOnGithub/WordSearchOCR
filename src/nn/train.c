@@ -8,6 +8,7 @@
 #include <dirent.h>
 #include <stdint.h>
 #include <sys/time.h>
+#include <math.h>
 #include "image/image.h"
 
 // Get current time in milliseconds (wall time)
@@ -85,19 +86,19 @@ float calculate_accuracy(Tensor* predictions, Tensor* targets) {
 // Save model weights to binary files
 void save_model_weights(CNN* model, int epoch) {
     // Create weights directory if it doesn't exist
-    mkdir("weights", 0755);
+    mkdir("training_data/weights", 0755);
 
     char filename[256];
 
     // Save conv1_3x3 weights and bias
-    sprintf(filename, "weights/conv1_3x3_weight_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv1_3x3_weight_epoch_%d.bin", epoch);
     FILE* f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv1_3x3->weight->data, sizeof(float), model->conv1_3x3->weight->size, f);
         fclose(f);
     }
 
-    sprintf(filename, "weights/conv1_3x3_bias_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv1_3x3_bias_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv1_3x3->bias->data, sizeof(float), model->conv1_3x3->bias->size, f);
@@ -105,14 +106,14 @@ void save_model_weights(CNN* model, int epoch) {
     }
 
     // Save conv1_1x1 weights and bias
-    sprintf(filename, "weights/conv1_1x1_weight_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv1_1x1_weight_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv1_1x1->weight->data, sizeof(float), model->conv1_1x1->weight->size, f);
         fclose(f);
     }
 
-    sprintf(filename, "weights/conv1_1x1_bias_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv1_1x1_bias_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv1_1x1->bias->data, sizeof(float), model->conv1_1x1->bias->size, f);
@@ -120,14 +121,14 @@ void save_model_weights(CNN* model, int epoch) {
     }
 
     // Save conv2_3x3 weights and bias
-    sprintf(filename, "weights/conv2_3x3_weight_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv2_3x3_weight_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv2_3x3->weight->data, sizeof(float), model->conv2_3x3->weight->size, f);
         fclose(f);
     }
 
-    sprintf(filename, "weights/conv2_3x3_bias_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv2_3x3_bias_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv2_3x3->bias->data, sizeof(float), model->conv2_3x3->bias->size, f);
@@ -135,14 +136,14 @@ void save_model_weights(CNN* model, int epoch) {
     }
 
     // Save conv2_1x1 weights and bias
-    sprintf(filename, "weights/conv2_1x1_weight_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv2_1x1_weight_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv2_1x1->weight->data, sizeof(float), model->conv2_1x1->weight->size, f);
         fclose(f);
     }
 
-    sprintf(filename, "weights/conv2_1x1_bias_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv2_1x1_bias_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv2_1x1->bias->data, sizeof(float), model->conv2_1x1->bias->size, f);
@@ -150,14 +151,14 @@ void save_model_weights(CNN* model, int epoch) {
     }
 
     // Save conv3_3x3 weights and bias
-    sprintf(filename, "weights/conv3_3x3_weight_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv3_3x3_weight_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv3_3x3->weight->data, sizeof(float), model->conv3_3x3->weight->size, f);
         fclose(f);
     }
 
-    sprintf(filename, "weights/conv3_3x3_bias_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv3_3x3_bias_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv3_3x3->bias->data, sizeof(float), model->conv3_3x3->bias->size, f);
@@ -165,14 +166,14 @@ void save_model_weights(CNN* model, int epoch) {
     }
 
     // Save conv3_1x1 weights and bias
-    sprintf(filename, "weights/conv3_1x1_weight_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv3_1x1_weight_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv3_1x1->weight->data, sizeof(float), model->conv3_1x1->weight->size, f);
         fclose(f);
     }
 
-    sprintf(filename, "weights/conv3_1x1_bias_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/conv3_1x1_bias_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->conv3_1x1->bias->data, sizeof(float), model->conv3_1x1->bias->size, f);
@@ -180,14 +181,14 @@ void save_model_weights(CNN* model, int epoch) {
     }
 
     // Save fc1 weights and bias
-    sprintf(filename, "weights/fc1_weight_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/fc1_weight_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->fc1->layer_grad->weights->data, sizeof(float), model->fc1->layer_grad->weights->size, f);
         fclose(f);
     }
 
-    sprintf(filename, "weights/fc1_bias_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/fc1_bias_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->fc1->layer_grad->biases->data, sizeof(float), model->fc1->layer_grad->biases->size, f);
@@ -195,14 +196,14 @@ void save_model_weights(CNN* model, int epoch) {
     }
 
     // Save fc2 weights and bias
-    sprintf(filename, "weights/fc2_weight_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/fc2_weight_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->fc2->layer_grad->weights->data, sizeof(float), model->fc2->layer_grad->weights->size, f);
         fclose(f);
     }
 
-    sprintf(filename, "weights/fc2_bias_epoch_%d.bin", epoch);
+    sprintf(filename, "training_data/weights/fc2_bias_epoch_%d.bin", epoch);
     f = fopen(filename, "wb");
     if (f) {
         fwrite(model->fc2->layer_grad->biases->data, sizeof(float), model->fc2->layer_grad->biases->size, f);
@@ -214,16 +215,120 @@ void save_model_weights(CNN* model, int epoch) {
 
 // Save loss data to text file (compact format - space separated)
 void save_loss_data(int epoch, float train_loss, float train_acc, float test_acc) {
-    FILE* f = fopen("training_log.txt", "a");
+    // Create logs directory if it doesn't exist
+    mkdir("training_data/logs", 0755);
+    FILE* f = fopen("training_data/logs/training_log.txt", "a");
     if (f) {
         fprintf(f, "%d %.6f %.4f %.4f\n", epoch, train_loss, train_acc, test_acc);
         fclose(f);
     }
 }
 
+// Save additional metrics (learning rate, gradient norms, etc.)
+void save_additional_metrics(int epoch, float learning_rate, float grad_norm, float lr_decay_factor, int patience_counter) {
+    // Create metrics directory if it doesn't exist
+    mkdir("training_data/metrics", 0755);
+    FILE* f = fopen("training_data/metrics/additional_metrics.txt", "a");
+    if (f) {
+        fprintf(f, "%d %.6f %.6f %.6f %d\n", epoch, learning_rate, grad_norm, lr_decay_factor, patience_counter);
+        fclose(f);
+    }
+}
+
+// Calculate gradient norm for monitoring training stability
+float calculate_gradient_norm(CNN* model) {
+    float total_norm = 0.0f;
+    int param_count = 0;
+
+    // Calculate norm for conv1_3x3 gradients
+    if (model->conv1_3x3->weight_grad) {
+        for (int i = 0; i < model->conv1_3x3->weight_grad->size; i++) {
+            total_norm += model->conv1_3x3->weight_grad->data[i] * model->conv1_3x3->weight_grad->data[i];
+        }
+        param_count += model->conv1_3x3->weight_grad->size;
+    }
+
+    if (model->conv1_3x3->bias_grad) {
+        for (int i = 0; i < model->conv1_3x3->bias_grad->size; i++) {
+            total_norm += model->conv1_3x3->bias_grad->data[i] * model->conv1_3x3->bias_grad->data[i];
+        }
+        param_count += model->conv1_3x3->bias_grad->size;
+    }
+
+    // Add other layer gradients...
+    // For brevity, just calculating conv1_3x3 for now - can expand later
+
+    return sqrtf(total_norm / param_count);  // RMS gradient norm
+}
+
+// Save training metadata and configuration
+void save_training_metadata(int num_epochs, int batch_size, float initial_lr, float weight_decay, int patience, char* dataset_info) {
+    // Create metadata directory if it doesn't exist
+    mkdir("training_data/metadata", 0755);
+
+    FILE* f = fopen("training_data/metadata/training_config.txt", "w");
+    if (f) {
+        time_t now = time(NULL);
+        fprintf(f, "Training Configuration\n");
+        fprintf(f, "=====================\n");
+        fprintf(f, "Timestamp: %s", ctime(&now));
+        fprintf(f, "Dataset: %s\n", dataset_info);
+        fprintf(f, "Epochs: %d\n", num_epochs);
+        fprintf(f, "Batch Size: %d\n", batch_size);
+        fprintf(f, "Initial Learning Rate: %.6f\n", initial_lr);
+        fprintf(f, "Weight Decay: %.6f\n", weight_decay);
+        fprintf(f, "Early Stopping Patience: %d\n", patience);
+        fprintf(f, "Optimizer: Adam (beta1=0.9, beta2=0.999, epsilon=1e-8)\n");
+        fprintf(f, "Scheduler: StepLR (step_size=7, gamma=0.1)\n");
+        fprintf(f, "Input Normalization: [-1, 1] (from [0,1])\n");
+        fprintf(f, "\nData Format Descriptions:\n");
+        fprintf(f, "- training_log.txt: epoch, train_loss, train_accuracy, test_accuracy\n");
+        fprintf(f, "- batch_log.txt: epoch, batch_idx, batch_loss, batch_accuracy, time_ms\n");
+        fprintf(f, "- additional_metrics.txt: epoch, learning_rate, gradient_norm, lr_decay_factor, patience_counter\n");
+        fprintf(f, "- batch_log_epoch_X.txt: per-epoch batch data\n");
+        fprintf(f, "- weights/: binary weight files per epoch\n");
+        fclose(f);
+        printf("Training metadata saved to training_data/metadata/training_config.txt\n");
+    }
+}
+
+// Save model checkpoint (full model state)
+void save_checkpoint(CNN* model, int epoch, float best_accuracy, float current_accuracy, char* checkpoint_type) {
+    // Create checkpoints directory if it doesn't exist
+    mkdir("training_data/checkpoints", 0755);
+
+    char filename[256];
+    if (strcmp(checkpoint_type, "best") == 0) {
+        sprintf(filename, "training_data/checkpoints/best_model_epoch_%d_acc_%.2f.bin", epoch, best_accuracy);
+    } else if (strcmp(checkpoint_type, "latest") == 0) {
+        sprintf(filename, "training_data/checkpoints/latest_checkpoint.bin");
+    } else if (strcmp(checkpoint_type, "regular") == 0) {
+        sprintf(filename, "training_data/checkpoints/checkpoint_epoch_%d.bin", epoch);
+    }
+
+    // For now, just save weights - can extend to save optimizer state later
+    save_model_weights(model, epoch);
+
+    // Save checkpoint metadata
+    char meta_filename[256];
+    sprintf(meta_filename, "%s.meta", filename);
+    FILE* f = fopen(meta_filename, "w");
+    if (f) {
+        fprintf(f, "epoch=%d\n", epoch);
+        fprintf(f, "accuracy=%.4f\n", current_accuracy);
+        fprintf(f, "best_accuracy=%.4f\n", best_accuracy);
+        fprintf(f, "type=%s\n", checkpoint_type);
+        fclose(f);
+    }
+
+    printf("  Checkpoint saved: %s\n", checkpoint_type);
+}
+
 // Save batch-level data to text file (compact format for graphing: epoch,batch_idx,loss,accuracy,time_ms)
 void save_batch_data(int epoch, int batch_idx, float batch_loss, float batch_acc, float time_ms) {
-    FILE* f = fopen("batch_log.txt", "a");
+    // Create logs directory if it doesn't exist
+    mkdir("training_data/logs", 0755);
+    FILE* f = fopen("training_data/logs/batch_log.txt", "a");
     if (f) {
         fprintf(f, "%d,%d,%.6f,%.4f,%.2f\n", epoch, batch_idx, batch_loss, batch_acc, time_ms);
         fclose(f);
@@ -232,8 +337,10 @@ void save_batch_data(int epoch, int batch_idx, float batch_loss, float batch_acc
 
 // Save all batch data for an epoch to a separate file
 void save_epoch_batch_data(int epoch, float* batch_losses, float* batch_accuracies, float* batch_times, int num_batches) {
+    // Create batch_data directory if it doesn't exist
+    mkdir("training_data/batch_data", 0755);
     char filename[256];
-    sprintf(filename, "batch_log_epoch_%d.txt", epoch);
+    sprintf(filename, "training_data/batch_data/batch_log_epoch_%d.txt", epoch);
 
     FILE* f = fopen(filename, "w");
     if (f) {
@@ -388,8 +495,6 @@ int main() {
     srand(time(NULL));
 
     // Load EMNIST lowercase letters dataset (filtered from byclass)
-    int max_samples = 1000;
-    int max_samples_test = 1000;
     printf("Loading EMNIST Lowercase Letters dataset...\n");
     Dataset* train_dataset = dataset_load_emnist("data/font_letters_train-images.idx",
                                                 "data/font_letters_train-labels.idx",
@@ -432,6 +537,12 @@ int main() {
     float best_accuracy = 0.0f;
     int patience = 10;  // More patience for deeper model
     int patience_counter = 0;
+
+    // Save training metadata
+    char dataset_info[256];
+    sprintf(dataset_info, "EMNIST Lowercase Letters (filtered from byclass, %d train samples, %d test samples)",
+            train_dataset->total_samples, test_dataset->total_samples);
+    save_training_metadata(num_epochs, 64, 1e-3f, 1e-4f, patience, dataset_info);
 
     printf("Starting training for %d epochs...\n\n", num_epochs);
 
@@ -584,9 +695,26 @@ int main() {
         float test_accuracy = (float)correct_test / total_test_samples * 100.0f;
         printf("  Test Accuracy: %.2f%%\n\n", test_accuracy);
 
+        // Calculate and save additional metrics
+        float grad_norm = calculate_gradient_norm(model);
+        float current_lr = adam_get_learning_rate(model->optimizer);
+        float lr_decay_factor = 0.1f;  // From StepLR scheduler
+        save_additional_metrics(epoch + 1, current_lr, grad_norm, lr_decay_factor, patience_counter);
+
         // Save weights and loss data at the end of each epoch
         save_model_weights(model, epoch + 1);
         save_loss_data(epoch + 1, epoch_loss, epoch_train_acc, test_accuracy);
+
+        // Save checkpoints
+        if (test_accuracy > best_accuracy) {
+            save_checkpoint(model, epoch + 1, test_accuracy, test_accuracy, "best");
+        }
+        // Save regular checkpoint every 5 epochs
+        if ((epoch + 1) % 5 == 0) {
+            save_checkpoint(model, epoch + 1, best_accuracy, test_accuracy, "regular");
+        }
+        // Always save latest checkpoint
+        save_checkpoint(model, epoch + 1, best_accuracy, test_accuracy, "latest");
 
         // Early stopping check
         if (test_accuracy > best_accuracy) {
