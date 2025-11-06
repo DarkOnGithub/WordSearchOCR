@@ -7,127 +7,31 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <immintrin.h>
+#include <omp.h>
 
-static inline void find_max(const float* values, int count, float* max_val, int* max_idx) {
-    *max_val = -FLT_MAX;
-    *max_idx = -1;
-
-    if (count <= 0) return;
-
-    *max_val = values[0];
-    *max_idx = 0;
-
-    int i = 1;
-    __m256 current_max_vec = _mm256_set1_ps(*max_val);
-
-    for (; i <= count - 8; i += 8) {
-        __m256 vals = _mm256_loadu_ps(&values[i]);
-        __m256 cmp_result = _mm256_cmp_ps(vals, current_max_vec, _CMP_GT_OQ);
-        int mask = _mm256_movemask_ps(cmp_result);
-
-        if (mask != 0) {
-            for (int j = 0; j < 8; j++) {
-                if (values[i + j] > *max_val) {
-                    *max_val = values[i + j];
-                    *max_idx = i + j;
-                }
-            }
-            current_max_vec = _mm256_set1_ps(*max_val);
-        }
-    }
-
-    for (; i < count; i++) {
-        if (values[i] > *max_val) {
-            *max_val = values[i];
-            *max_idx = i;
-        }
-    }
-}
-
-static inline void find_kernel_max(const float* input_data, int height, int width,
+static __attribute__((always_inline)) inline void find_kernel_max(const float* input_data, int height, int width,
                                        int ih_start, int iw_start, int kernel_h, int kernel_w,
                                        int dilation_h, int dilation_w, int batch_offset, int channel_offset,
                                        int height_stride, float* max_val, int* max_linear_idx) {
     *max_val = -FLT_MAX;
     *max_linear_idx = -1;
 
-    // For dilation > 1, use scalar version
-    if (dilation_h > 1 || dilation_w > 1) {
-        for (int kh = 0; kh < kernel_h; ++kh) {
-            for (int kw = 0; kw < kernel_w; ++kw) {
-                int ih = ih_start + kh * dilation_h;
-                int iw = iw_start + kw * dilation_w;
+    for (int kh = 0; kh < kernel_h; ++kh) {
+        for (int kw = 0; kw < kernel_w; ++kw) {
+            int ih = ih_start + kh * dilation_h;
+            int iw = iw_start + kw * dilation_w;
 
-                if (ih >= 0 && ih < height && iw >= 0 && iw < width) {
-                    int input_idx = batch_offset + channel_offset + ih * height_stride + iw;
-                    float val = input_data[input_idx];
+            // Check if the pixel is within the valid input bounds
+            if (ih >= 0 && ih < height && iw >= 0 && iw < width) {
+                int input_idx = batch_offset + channel_offset + ih * height_stride + iw;
+                float val = input_data[input_idx];
 
-                    if (val > *max_val) {
-                        *max_val = val;
-                        *max_linear_idx = input_idx;
-                    }
+                if (val > *max_val) {
+                    *max_val = val;
+                    *max_linear_idx = input_idx;
                 }
             }
         }
-        return;
-    }
-
-    // For dilation = 1, collect values and max finding
-    int max_possible = kernel_h * kernel_w;
-    if (max_possible <= 32) {
-        // Small kernel, use simple scalar version
-        for (int kh = 0; kh < kernel_h; ++kh) {
-            for (int kw = 0; kw < kernel_w; ++kw) {
-                int ih = ih_start + kh;
-                int iw = iw_start + kw;
-
-                if (ih >= 0 && ih < height && iw >= 0 && iw < width) {
-                    int input_idx = batch_offset + channel_offset + ih * height_stride + iw;
-                    float val = input_data[input_idx];
-
-                    if (val > *max_val) {
-                        *max_val = val;
-                        *max_linear_idx = input_idx;
-                    }
-                }
-            }
-        }
-    } else {
-        // Larger kernel, collect values and use SIMD
-        float* kernel_values = (float*)malloc(sizeof(float) * max_possible);
-        int* kernel_indices = (int*)malloc(sizeof(int) * max_possible);
-        if (!kernel_values || !kernel_indices) {
-            free(kernel_values);
-            free(kernel_indices);
-            find_kernel_max(input_data, height, width, ih_start, iw_start,
-                               kernel_h, kernel_w, 1, 1, batch_offset, channel_offset,
-                               height_stride, max_val, max_linear_idx);
-            return;
-        }
-
-        int valid_count = 0;
-        for (int kh = 0; kh < kernel_h; ++kh) {
-            for (int kw = 0; kw < kernel_w; ++kw) {
-                int ih = ih_start + kh;
-                int iw = iw_start + kw;
-
-                if (ih >= 0 && ih < height && iw >= 0 && iw < width) {
-                    int input_idx = batch_offset + channel_offset + ih * height_stride + iw;
-                    kernel_values[valid_count] = input_data[input_idx];
-                    kernel_indices[valid_count] = input_idx;
-                    valid_count++;
-                }
-            }
-        }
-
-        if (valid_count > 0) {
-            int max_pos;
-            find_max(kernel_values, valid_count, max_val, &max_pos);
-            *max_linear_idx = kernel_indices[max_pos];
-        }
-
-        free(kernel_values);
-        free(kernel_indices);
     }
 }
 
@@ -219,25 +123,64 @@ MaxPool2DOutput* maxpool2d_forward(MaxPool2D* layer, Tensor* input) {
     int output_channel_stride = output_h * output_w;
     int output_batch_stride = channels * output_channel_stride;
 
+    // Precompute constants for better performance
+    const int dilation_h = layer->dilation_h;
+    const int dilation_w = layer->dilation_w;
+    const int kernel_h = layer->kernel_size_h;
+    const int kernel_w = layer->kernel_size_w;
+    const int stride_h = layer->stride_h;
+    const int stride_w = layer->stride_w;
+    const int padding_h = layer->padding_h;
+    const int padding_w = layer->padding_w;
+
+    // Optimized loop with better memory access patterns and OpenMP parallelization
+    #pragma omp parallel for collapse(2)
     for (int b = 0; b < batch_size; ++b) {
-        int batch_offset = b * batch_stride;
         for (int c = 0; c < channels; ++c) {
-            int channel_offset = c * channel_stride;
+            const int batch_offset = b * batch_stride;
+            const int channel_offset = c * channel_stride;
+            const int output_base_idx = b * output_batch_stride + c * output_channel_stride;
+
             for (int oh = 0; oh < output_h; ++oh) {
-                for (int ow = 0; ow < output_w; ++ow) {
-                    int ih_start = oh * layer->stride_h - layer->padding_h;
-                    int iw_start = ow * layer->stride_w - layer->padding_w;
+                const int ih_start = oh * stride_h - padding_h;
+                const int output_row_base = output_base_idx + oh * output_w;
+
+                // Process output positions in row with some unrolling for small widths
+                int ow = 0;
+                for (; ow <= output_w - 4; ow += 4) {
+                    // Unroll 4 iterations for better ILP
+                    for (int k = 0; k < 4; ++k) {
+                        const int ow_k = ow + k;
+                        const int iw_start = ow_k * stride_w - padding_w;
+
+                        float max_val;
+                        int max_idx;
+                        find_kernel_max(input->data, height, width, ih_start, iw_start,
+                                       kernel_h, kernel_w, dilation_h, dilation_w,
+                                       batch_offset, channel_offset, width,
+                                       &max_val, &max_idx);
+
+                        const int output_idx = output_row_base + ow_k;
+                        output->data[output_idx] = max_val;
+
+                        if (layer->return_indices && indices) {
+                            indices->data[output_idx] = (float)max_idx;
+                        }
+                    }
+                }
+
+                // Handle remaining elements
+                for (; ow < output_w; ++ow) {
+                    const int iw_start = ow * stride_w - padding_w;
 
                     float max_val;
                     int max_idx;
                     find_kernel_max(input->data, height, width, ih_start, iw_start,
-                                       layer->kernel_size_h, layer->kernel_size_w,
-                                       layer->dilation_h, layer->dilation_w,
-                                       batch_offset, channel_offset, width,
-                                       &max_val, &max_idx);
+                                   kernel_h, kernel_w, dilation_h, dilation_w,
+                                   batch_offset, channel_offset, width,
+                                   &max_val, &max_idx);
 
-                    int output_idx = b * output_batch_stride + c * output_channel_stride +
-                                   oh * output_w + ow;
+                    const int output_idx = output_row_base + ow;
                     output->data[output_idx] = max_val;
 
                     if (layer->return_indices && indices) {
@@ -292,7 +235,8 @@ MaxPool2DBackwardOutput* maxpool2d_backward(MaxPool2D* layer, MaxPool2DOutput* f
     int out_width = forward_result->output->shape[3];
 
     if (forward_result->indices && layer->return_indices) {
-        // Use indices for direct gradient routing
+        // Fast path: Use indices for direct gradient routing with OpenMP parallelization
+        #pragma omp parallel for collapse(4)
         for (int b = 0; b < out_batch; ++b) {
             for (int c = 0; c < out_channels; ++c) {
                 for (int oh = 0; oh < out_height; ++oh) {
@@ -305,50 +249,89 @@ MaxPool2DBackwardOutput* maxpool2d_backward(MaxPool2D* layer, MaxPool2DOutput* f
                         // Get the input index where the maximum came from
                         int input_linear_idx = (int)forward_result->indices->data[output_idx];
 
-                        // Route gradient to that position
+                        // MUST be atomic to prevent race conditions
+                        #pragma omp atomic
                         input_grad->data[input_linear_idx] += grad_val;
                     }
                 }
             }
         }
     } else {
-        // No indices available, need to recompute maximum positions
-        // This is less efficient but works when indices aren't stored
+        // Slow path: No indices available, need to recompute maximum positions
+        // Optimized version with same loop structure as forward pass
 
-        // Recompute maximum positions by iterating through the input again
         Tensor* input = forward_result->input;
-        int in_batch = input->shape[0];
-        int in_channels = input->shape[1];
-        int in_height = input->shape[2];
-        int in_width = input->shape[3];
+        const int in_batch = input->shape[0];
+        const int in_channels = input->shape[1];
+        const int in_height = input->shape[2];
+        const int in_width = input->shape[3];
 
-        int in_channel_stride = in_height * in_width;
-        int in_batch_stride = in_channels * in_channel_stride;
-        int out_channel_stride = out_height * out_width;
-        int out_batch_stride = out_channels * out_channel_stride;
+        const int in_channel_stride = in_height * in_width;
+        const int in_batch_stride = in_channels * in_channel_stride;
+        const int out_channel_stride = out_height * out_width;
+        const int out_batch_stride = out_channels * out_channel_stride;
 
+        // Precompute constants
+        const int dilation_h = layer->dilation_h;
+        const int dilation_w = layer->dilation_w;
+        const int kernel_h = layer->kernel_size_h;
+        const int kernel_w = layer->kernel_size_w;
+        const int stride_h = layer->stride_h;
+        const int stride_w = layer->stride_w;
+        const int padding_h = layer->padding_h;
+        const int padding_w = layer->padding_w;
+
+        #pragma omp parallel for collapse(2)
         for (int b = 0; b < in_batch; ++b) {
-            int batch_offset = b * in_batch_stride;
             for (int c = 0; c < in_channels; ++c) {
-                int channel_offset = c * in_channel_stride;
-                for (int oh = 0; oh < out_height; ++oh) {
-                    for (int ow = 0; ow < out_width; ++ow) {
-                        int output_idx = b * out_batch_stride + c * out_channel_stride +
-                                       oh * out_width + ow;
-                        float grad_val = output_grad->data[output_idx];
+                const int batch_offset = b * in_batch_stride;
+                const int channel_offset = c * in_channel_stride;
+                const int output_base_idx = b * out_batch_stride + c * out_channel_stride;
 
-                        int ih_start = oh * layer->stride_h - layer->padding_h;
-                        int iw_start = ow * layer->stride_w - layer->padding_w;
+                for (int oh = 0; oh < out_height; ++oh) {
+                    const int ih_start = oh * stride_h - padding_h;
+                    const int output_row_base = output_base_idx + oh * out_width;
+
+                    // Process output positions in row with unrolling
+                    int ow = 0;
+                    for (; ow <= out_width - 4; ow += 4) {
+                        for (int k = 0; k < 4; ++k) {
+                            const int ow_k = ow + k;
+                            const int iw_start = ow_k * stride_w - padding_w;
+                            const int output_idx = output_row_base + ow_k;
+                            const float grad_val = output_grad->data[output_idx];
+
+                            float max_val;
+                            int max_linear_idx;
+                            find_kernel_max(input->data, in_height, in_width, ih_start, iw_start,
+                                           kernel_h, kernel_w, dilation_h, dilation_w,
+                                           batch_offset, channel_offset, in_width,
+                                           &max_val, &max_linear_idx);
+
+                            if (max_linear_idx != -1) {
+                                // MUST be atomic here too
+                                #pragma omp atomic
+                                input_grad->data[max_linear_idx] += grad_val;
+                            }
+                        }
+                    }
+
+                    // Handle remaining elements
+                    for (; ow < out_width; ++ow) {
+                        const int iw_start = ow * stride_w - padding_w;
+                        const int output_idx = output_row_base + ow;
+                        const float grad_val = output_grad->data[output_idx];
 
                         float max_val;
                         int max_linear_idx;
                         find_kernel_max(input->data, in_height, in_width, ih_start, iw_start,
-                                           layer->kernel_size_h, layer->kernel_size_w,
-                                           layer->dilation_h, layer->dilation_w,
-                                           batch_offset, channel_offset, in_width,
-                                           &max_val, &max_linear_idx);
+                                       kernel_h, kernel_w, dilation_h, dilation_w,
+                                       batch_offset, channel_offset, in_width,
+                                       &max_val, &max_linear_idx);
 
                         if (max_linear_idx != -1) {
+                            // MUST be atomic here too
+                            #pragma omp atomic
                             input_grad->data[max_linear_idx] += grad_val;
                         }
                     }
