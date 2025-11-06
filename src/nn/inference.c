@@ -11,6 +11,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 // Draw text on an image using Cairo
 void draw_text_on_image(Image* image, const char* text, int x, int y, const char* font_family, int font_size, double r, double g, double b) {
@@ -26,6 +29,7 @@ void draw_text_on_image(Image* image, const char* text, int x, int y, const char
         return;
     }
 
+    #pragma omp parallel for schedule(static)
     for (int i = 0; i < image->width * image->height; i++) {
         uint32_t rgba = image->rgba_pixels[i];
         uint8_t r_val = (rgba >> 24) & 0xFF;
@@ -66,6 +70,7 @@ void draw_text_on_image(Image* image, const char* text, int x, int y, const char
     cairo_surface_destroy(surface);
 
     // Convert back to RGBA
+    #pragma omp parallel for schedule(static)
     for (int i = 0; i < image->width * image->height; i++) {
         uint32_t argb = argb_pixels[i];
         uint8_t a_val = (argb >> 24) & 0xFF;

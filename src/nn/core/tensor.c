@@ -5,6 +5,9 @@
 #include <immintrin.h>
 #include <stdio.h>
 #include <math.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 Tensor* tensor_create(int* shape, int ndim) {
     Tensor* tensor = (Tensor*)malloc(sizeof(Tensor));

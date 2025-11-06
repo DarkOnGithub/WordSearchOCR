@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <immintrin.h>
 #include <string.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 static inline float horizontal_max_avx(__m256 v) {
     __m128 hi = _mm256_extractf128_ps(v, 1);
@@ -63,6 +66,7 @@ Tensor* softmax(Tensor* input) {
     Tensor* output = tensor_create(input->shape, input->ndim);
     if (!output) return NULL;
 
+    #pragma omp parallel for schedule(static) if (batch_size > 1)
     for (int b = 0; b < batch_size; b++) {
         // Find max value for numerical stability
         __m256 max_vec = _mm256_set1_ps(-INFINITY);

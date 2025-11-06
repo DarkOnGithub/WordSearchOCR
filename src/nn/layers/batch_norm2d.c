@@ -5,6 +5,9 @@
 #include <string.h>
 #include <math.h>
 #include <immintrin.h>  // For SIMD operations
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 BatchNorm2D* batch_norm2d_create(int num_features, float momentum, float epsilon) {
     if (num_features <= 0) {
@@ -185,6 +188,7 @@ BatchNorm2DOutput* batch_norm2d_forward(BatchNorm2D* layer, Tensor* input) {
                                     batch_mean, batch_var);
 
         // Update running statistics
+        #pragma omp parallel for schedule(static) if (num_features > 4)
         for (int c = 0; c < num_features; ++c) {
             layer->running_mean->data[c] = layer->momentum * layer->running_mean->data[c] +
                                           (1.0f - layer->momentum) * batch_mean[c];
@@ -206,6 +210,7 @@ BatchNorm2DOutput* batch_norm2d_forward(BatchNorm2D* layer, Tensor* input) {
     }
 
     // Compute standard deviation
+    #pragma omp parallel for schedule(static) if (num_features > 4)
     for (int c = 0; c < num_features; ++c) {
         batch_std[c] = sqrtf(batch_var[c] + layer->epsilon);
     }
@@ -239,6 +244,7 @@ BatchNorm2DOutput* batch_norm2d_forward(BatchNorm2D* layer, Tensor* input) {
     }
 
     // Apply scale (gamma) and shift (beta)
+    #pragma omp parallel for collapse(2) schedule(static) if (batch_size * num_features > 4)
     for (int b = 0; b < batch_size; ++b) {
         for (int c = 0; c < num_features; ++c) {
             float gamma = layer->layer_grad->weights->data[c];

@@ -9,7 +9,7 @@ CFLAGS = -Wall -Wextra -std=c99 -g -mavx2 -mfma -fopenmp -Iinclude
 LDFLAGS = -lm -fopenmp
 
 # Training-specific optimization flags for maximum performance
-TRAIN_CFLAGS = -O3 -march=native -flto -ffast-math -funroll-loops -mavx2 -mfma -fopenmp -DNDEBUG -Iinclude $(GTK_CFLAGS)
+TRAIN_CFLAGS = -O3 -march=native -flto -ffast-math -funroll-loops -mavx2 -mfma -fopenmp -DNDEBUG -Iinclude $(GTK_CFLAGS) -fopt-info-vec -fopt-info-inline
 TRAIN_LDFLAGS = -O3 -flto -lm -fopenmp $(GTK_LIBS)
 
 # Profiling flags for gprof
@@ -121,6 +121,8 @@ train-optimized: dirs $(TRAIN_TARGET)
 	@echo "Built with aggressive optimizations for maximum training performance!"
 	@echo "Flags used: $(TRAIN_CFLAGS)"
 	@echo "Run with: ./$(TRAIN_TARGET)"
+	@echo "For maximum CPU utilization, run with:"
+	@echo "OMP_NUM_THREADS=$(shell nproc) ./$(TRAIN_TARGET)"
 
 # Profiling targets
 PROFILE_TRAIN_TARGET = $(BUILD_DIR)/profile_train

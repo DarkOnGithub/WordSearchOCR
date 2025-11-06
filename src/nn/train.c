@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <sys/time.h>
 #include <math.h>
+#include <omp.h>
 #include "image/image.h"
 
 // Get current time in milliseconds (wall time)
@@ -573,6 +574,12 @@ int main(int argc, char* argv[]) {
     printf("EMNIST Lowercase Letter CNN Training\n");
     printf("=====================================\n\n");
 
+    // Optimize OpenMP settings for maximum CPU utilization
+    omp_set_num_threads(omp_get_num_procs());  // Use all available cores
+    omp_set_nested(0);  // Disable nested parallelism to avoid oversubscription
+
+    printf("OpenMP configured to use %d threads\n", omp_get_max_threads());
+
     // Parse command line arguments
     int force_resume = 0;  // 0 = ask user, 1 = force resume, -1 = force no resume
     int custom_epochs = -1;
@@ -729,6 +736,7 @@ int main(int argc, char* argv[]) {
 
             // Normalize input from [0,1] to [-1,1] (like PyTorch transforms.Normalize((0.5,), (0.5,)))
             Tensor* input_normalized = tensor_create(batch->data->shape, batch->data->ndim);
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < batch->data->size; i++) {
                 input_normalized->data[i] = (batch->data->data[i] - 0.5f) / 0.5f;  // Normalize to [-1,1]
             }
@@ -736,6 +744,7 @@ int main(int argc, char* argv[]) {
             // Labels are already in range 0-25 (filtered and remapped by dataset loader: EMNIST 1-26 -> 0-25)
             int targets_shape[] = {batch->labels->shape[0], 1, 1, 1};
             Tensor* targets_adjusted = tensor_create(targets_shape, 4);
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < batch->labels->size; i++) {
                 targets_adjusted->data[i] = batch->labels->data[i];  // Already 0-25
             }
@@ -761,6 +770,7 @@ int main(int argc, char* argv[]) {
             // Calculate training accuracy for this batch (using same forward pass as loss)
             int pred_shape[] = {batch->data->shape[0], 1, 1, 1};
             Tensor* predictions = tensor_create(pred_shape, 4);
+            #pragma omp parallel for schedule(static)
             for (int b = 0; b < batch->data->shape[0]; b++) {
                 int max_idx = 0;
                 float max_val = forward_result->fc2_out->data[b * 26];
@@ -823,6 +833,7 @@ int main(int argc, char* argv[]) {
 
             // Normalize input from [0,1] to [-1,1]
             Tensor* input_normalized = tensor_create(batch->data->shape, batch->data->ndim);
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < batch->data->size; i++) {
                 input_normalized->data[i] = (batch->data->data[i] - 0.5f) / 0.5f;
             }
@@ -830,6 +841,7 @@ int main(int argc, char* argv[]) {
             // Labels are already in range 0-25 (filtered and remapped by dataset loader: EMNIST 1-26 -> 0-25)
             int targets_shape[] = {batch->labels->shape[0], 1, 1, 1};
             Tensor* targets_adjusted = tensor_create(targets_shape, 4);
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < batch->labels->size; i++) {
                 targets_adjusted->data[i] = batch->labels->data[i];  // Already 0-25
             }
@@ -901,12 +913,14 @@ int main(int argc, char* argv[]) {
         Batch* batch = &test_dataset->batches[batch_idx];
 
         Tensor* input_normalized = tensor_create(batch->data->shape, batch->data->ndim);
+        #pragma omp parallel for schedule(static)
         for (int i = 0; i < batch->data->size; i++) {
             input_normalized->data[i] = (batch->data->data[i] - 0.5f) / 0.5f;
         }
 
         int targets_shape[] = {batch->labels->shape[0], 1, 1, 1};
         Tensor* targets_adjusted = tensor_create(targets_shape, 4);
+        #pragma omp parallel for schedule(static)
         for (int i = 0; i < batch->labels->size; i++) {
             targets_adjusted->data[i] = batch->labels->data[i];
         }
