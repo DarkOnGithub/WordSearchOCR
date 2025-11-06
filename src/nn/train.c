@@ -428,7 +428,7 @@ int main() {
     setup_optimizer_scheduler(model);
 
     // Training parameters
-    int num_epochs = 10;
+    int num_epochs = 12;
     float best_accuracy = 0.0f;
     int patience = 10;  // More patience for deeper model
     int patience_counter = 0;
