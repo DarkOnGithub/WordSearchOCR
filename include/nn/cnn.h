@@ -140,9 +140,6 @@ float cnn_training_step(CNN* model, CNNForwardResult* forward_result, Tensor* ta
 // Inference (returns predicted class indices)
 Tensor* cnn_predict(CNN* model, Tensor* input);
 
-// Zero gradients for all parameters
-void cnn_zero_grad(CNN* model);
-
 // Step optimizer
 void cnn_step_optimizer(CNN* model);
 
@@ -151,6 +148,9 @@ void cnn_step_scheduler(CNN* model);
 
 // Get all parameters for optimizer setup
 int cnn_get_parameters(CNN* model, Tensor*** params, Tensor*** grads);
+
+// Free parameter arrays allocated by cnn_get_parameters
+void cnn_free_parameters(Tensor** params, Tensor** grads);
 
 // Load weights from files for a specific epoch
 int cnn_load_weights(CNN* model, int epoch);

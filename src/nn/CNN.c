@@ -11,11 +11,10 @@
 
 typedef struct timespec TimingType;
 #define GET_TIME(t) clock_gettime(CLOCK_MONOTONIC, &(t))
-#define TIME_DIFF(start, end, freq) ((double)((end.tv_sec - start.tv_sec) * 1000000000L + (end.tv_nsec - start.tv_nsec)) / 1000000.0) // ms
+#define TIME_DIFF(start, end) ((double)((end.tv_sec - start.tv_sec) * 1000000000L + (end.tv_nsec - start.tv_nsec)) / 1000000.0) // ms
 #define INIT_TIMING()
 
 static int timing_initialized = 0;
-static int timing_freq = 1;
 
 //Useful to detect gradient explosion / vanishing
 //!WARNING: DO NOT USE IN PROD
@@ -193,7 +192,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->shortcut1_out = conv2D_forward(model->shortcut1, input);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Shortcut1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Shortcut1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Main path: Conv3x3 -> BN -> SiLU -> Conv1x1 -> BN
@@ -201,7 +200,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->conv1_3x3_out = conv2D_forward(model->conv1_3x3, input);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Conv1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Conv1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -209,14 +208,14 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->silu1_3x3 = silu(result->bn1_3x3_result->output);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - BN1_3x3 + SiLU1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - BN1_3x3 + SiLU1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
     result->conv1_1x1_out = conv2D_forward(model->conv1_1x1, result->silu1_3x3);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Conv1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Conv1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -225,15 +224,17 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->residual1_out = result->bn1_1x1_result->output;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - BN1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - BN1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Residual addition + activation
     GET_TIME(start_op);
-    result->silu1_residual = silu(tensor_add(result->residual1_out, result->shortcut1_out));
+    Tensor* residual1_sum = tensor_add(result->residual1_out, result->shortcut1_out);
+    result->silu1_residual = silu(residual1_sum);
+    tensor_free(residual1_sum);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Residual1 + SiLU: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Residual1 + SiLU: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Pooling and dropout
@@ -242,7 +243,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->pool1_out = result->pool1_result->output;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Pool1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Pool1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -250,7 +251,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->dropout1_out = result->dropout1_result->output;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Dropout1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Dropout1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // --- Block 2: 14x14 -> 7x7 (with residual connection) ---
@@ -259,7 +260,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->shortcut2_out = conv2D_forward(model->shortcut2, result->dropout1_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Shortcut2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Shortcut2: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Main path: Conv3x3 -> BN -> SiLU -> Conv1x1 -> BN
@@ -267,7 +268,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->conv2_3x3_out = conv2D_forward(model->conv2_3x3, result->dropout1_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Conv2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Conv2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -275,14 +276,14 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->silu2_3x3 = silu(result->bn2_3x3_result->output);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - BN2_3x3 + SiLU2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - BN2_3x3 + SiLU2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
     result->conv2_1x1_out = conv2D_forward(model->conv2_1x1, result->silu2_3x3);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Conv2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Conv2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -290,15 +291,17 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->residual2_out = result->bn2_1x1_result->output;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - BN2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - BN2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Residual addition + activation
     GET_TIME(start_op);
-    result->silu2_residual = silu(tensor_add(result->residual2_out, result->shortcut2_out));
+    Tensor* residual2_sum = tensor_add(result->residual2_out, result->shortcut2_out);
+    result->silu2_residual = silu(residual2_sum);
+    tensor_free(residual2_sum);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Residual2 + SiLU: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Residual2 + SiLU: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Pooling and dropout
@@ -307,7 +310,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->pool2_out = result->pool2_result->output;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Pool2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Pool2: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -315,7 +318,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->dropout2_out = result->dropout2_result->output;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Dropout2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Dropout2: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // --- Block 3: 7x7 -> 1x1 (with residual connection) ---
@@ -324,7 +327,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->shortcut3_out = conv2D_forward(model->shortcut3, result->dropout2_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Shortcut3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Shortcut3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Main path: Conv3x3 -> BN -> SiLU -> Conv1x1 -> BN
@@ -332,7 +335,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->conv3_3x3_out = conv2D_forward(model->conv3_3x3, result->dropout2_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Conv3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Conv3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -340,14 +343,14 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->silu3_3x3 = silu(result->bn3_3x3_result->output);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - BN3_3x3 + SiLU3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - BN3_3x3 + SiLU3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
     result->conv3_1x1_out = conv2D_forward(model->conv3_1x1, result->silu3_3x3);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Conv3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Conv3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -355,15 +358,17 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->residual3_out = result->bn3_1x1_result->output;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - BN3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - BN3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Residual addition + activation
     GET_TIME(start_op);
-    result->silu3_residual = silu(tensor_add(result->residual3_out, result->shortcut3_out));
+    Tensor* residual3_sum = tensor_add(result->residual3_out, result->shortcut3_out);
+    result->silu3_residual = silu(residual3_sum);
+    tensor_free(residual3_sum);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Residual3 + SiLU: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Residual3 + SiLU: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Global average pooling instead of max pooling
@@ -372,7 +377,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->gap_out = result->gap_result->output;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - GAP: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - GAP: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // --- Flatten & FC ---
@@ -384,7 +389,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->flattened = flattened_copy;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Flatten: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Flatten: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // FC layers
@@ -393,14 +398,14 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->fc1_out = result->fc1_result->output;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - FC1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - FC1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
     result->silu1_out = silu(result->fc1_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - SiLU_FC1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - SiLU_FC1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -408,7 +413,7 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     result->dropout_fc_out = result->dropout_fc_result->output;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Dropout_FC: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - Dropout_FC: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -417,12 +422,12 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     check_gradients("Forward - FC2 output", result->fc2_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - FC2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Forward - FC2: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(end_total);
     if (model->timing_verbose) {
-        printf("Forward - Total: %.3f ms\n", TIME_DIFF(start_total, end_total, timing_freq));
+        printf("Forward - Total: %.3f ms\n", TIME_DIFF(start_total, end_total));
     }
 
     return result;
@@ -504,21 +509,18 @@ void cnn_forward_result_free(CNNForwardResult* result) {
     tensor_free(result->flattened);
     result->flattened = NULL;
     if (result->fc1_result) {
-        result->fc1_result->output = NULL;
         linear_output_free(result->fc1_result);
         result->fc1_result = NULL;
     }
-    tensor_free(result->fc1_out);
+    // Note: fc1_out is freed by linear_output_free above
     result->fc1_out = NULL;
     tensor_free(result->silu1_out);
     result->silu1_out = NULL;
     if (result->dropout_fc_result) {
-        result->dropout_fc_result->output = NULL;
         dropout_output_free(result->dropout_fc_result);
         result->dropout_fc_result = NULL;
     }
     if (result->fc2_result) {
-        result->fc2_result->output = NULL;
         linear_output_free(result->fc2_result);
         result->fc2_result = NULL;
     }
@@ -537,11 +539,13 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     Tensor* loss_upstream_grad = tensor_create_ones(loss_grad_shape, 2);
     CrossEntropyBackwardOutput* loss_grad_result = cross_entropy_loss_backward(model->criterion, loss_result, loss_upstream_grad);
     Tensor* output_grad = loss_grad_result->input_grad;
+    loss_grad_result->input_grad = NULL;  // Prevent double-free
+    cross_entropy_backward_result_free(loss_grad_result);
     tensor_free(loss_upstream_grad);
     check_gradients("Loss backward", output_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Loss: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Loss: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // FC2 backward
@@ -553,7 +557,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("FC2 backward", fc2_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - FC2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - FC2: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Dropout FC backward
@@ -565,7 +569,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Dropout FC backward", dropout_fc_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Dropout_FC: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Dropout_FC: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // SiLU FC1 backward
@@ -575,7 +579,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("SiLU FC1 backward", silu_fc1_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - SiLU_FC1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - SiLU_FC1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // FC1 backward
@@ -588,7 +592,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("FC1 backward", fc1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - FC1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - FC1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Reshape fc1 input gradient back to original conv shape [batch_size, 256, 1, 1]
@@ -603,7 +607,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Reshaped FC1 backward", reshaped_fc1_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Reshape: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Reshape: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // GAP backward
@@ -616,7 +620,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("GAP backward", gap_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - GAP: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - GAP: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // SiLU residual3 backward
@@ -626,7 +630,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("SiLU residual3 backward", silu3_residual_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - SiLU_residual3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - SiLU_residual3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Residual3 split: gradient goes to both main path and shortcut
@@ -637,11 +641,13 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     // Shortcut path gets the full gradient (since it's added to main)
     Tensor* residual3_shortcut_grad = tensor_create(silu3_residual_grad->shape, silu3_residual_grad->ndim);
     memcpy(residual3_shortcut_grad->data, silu3_residual_grad->data, silu3_residual_grad->size * sizeof(float));
+    // Free the original gradient tensor after copying
+    tensor_free(silu3_residual_grad);
     check_gradients("Residual3 split - main", residual3_main_grad);
     check_gradients("Residual3 split - shortcut", residual3_shortcut_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Residual3 split: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Residual3 split: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Shortcut3 backward
@@ -651,7 +657,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Shortcut3 backward", shortcut3_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Shortcut3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Shortcut3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Main path backward: BN3_1x1 -> Conv3_1x1 -> SiLU3_3x3 -> BN3_3x3 -> Conv3_3x3
@@ -668,7 +674,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("BN3_1x1 backward", bn3_1x1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - BN3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - BN3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -677,7 +683,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Conv3_1x1 backward", conv3_1x1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Conv3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Conv3_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -686,7 +692,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("SiLU3_3x3 backward", silu3_3x3_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - SiLU3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - SiLU3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -702,7 +708,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("BN3_3x3 backward", bn3_3x3_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - BN3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - BN3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -711,7 +717,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Conv3_3x3 backward", conv3_3x3_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Conv3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Conv3_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Combine gradients from shortcut and main path
@@ -722,7 +728,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Block3 combined gradient", block3_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Block3 combine: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Block3 combine: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Dropout2 backward
@@ -735,7 +741,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Dropout2 backward", dropout2_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Dropout2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Dropout2: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Pool2 backward
@@ -748,7 +754,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Pool2 backward", pool2_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Pool2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Pool2: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // SiLU residual2 backward
@@ -758,7 +764,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("SiLU residual2 backward", silu2_residual_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - SiLU_residual2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - SiLU_residual2: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Residual2 split
@@ -767,9 +773,11 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     memcpy(residual2_main_grad->data, silu2_residual_grad->data, silu2_residual_grad->size * sizeof(float));
     Tensor* residual2_shortcut_grad = tensor_create(silu2_residual_grad->shape, silu2_residual_grad->ndim);
     memcpy(residual2_shortcut_grad->data, silu2_residual_grad->data, silu2_residual_grad->size * sizeof(float));
+    // Free the original gradient tensor after copying
+    tensor_free(silu2_residual_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Residual2 split: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Residual2 split: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Shortcut2 backward
@@ -779,7 +787,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Shortcut2 backward", shortcut2_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Shortcut2: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Shortcut2: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Main path backward: BN2_1x1 -> Conv2_1x1 -> SiLU2_3x3 -> BN2_3x3 -> Conv2_3x3
@@ -796,7 +804,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("BN2_1x1 backward", bn2_1x1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - BN2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - BN2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -805,7 +813,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Conv2_1x1 backward", conv2_1x1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Conv2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Conv2_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -814,7 +822,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("SiLU2_3x3 backward", silu2_3x3_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - SiLU2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - SiLU2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -830,7 +838,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("BN2_3x3 backward", bn2_3x3_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - BN2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - BN2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -839,7 +847,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Conv2_3x3 backward", conv2_3x3_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Conv2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Conv2_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Combine gradients from shortcut and main path
@@ -850,7 +858,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Block2 combined gradient", block2_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Block2 combine: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Block2 combine: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Dropout1 backward
@@ -863,7 +871,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Dropout1 backward", dropout1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Dropout1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Dropout1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Pool1 backward
@@ -876,7 +884,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Pool1 backward", pool1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Pool1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Pool1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // SiLU residual1 backward
@@ -886,7 +894,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("SiLU residual1 backward", silu1_residual_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - SiLU_residual1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - SiLU_residual1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Residual1 split
@@ -895,9 +903,11 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     memcpy(residual1_main_grad->data, silu1_residual_grad->data, silu1_residual_grad->size * sizeof(float));
     Tensor* residual1_shortcut_grad = tensor_create(silu1_residual_grad->shape, silu1_residual_grad->ndim);
     memcpy(residual1_shortcut_grad->data, silu1_residual_grad->data, silu1_residual_grad->size * sizeof(float));
+    // Free the original gradient tensor after copying
+    tensor_free(silu1_residual_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Residual1 split: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Residual1 split: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Shortcut1 backward
@@ -907,7 +917,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Shortcut1 backward", shortcut1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Shortcut1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Shortcut1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Main path backward: BN1_1x1 -> Conv1_1x1 -> SiLU1_3x3 -> BN1_3x3 -> Conv1_3x3
@@ -924,7 +934,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("BN1_1x1 backward", bn1_1x1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - BN1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - BN1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -933,7 +943,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Conv1_1x1 backward", conv1_1x1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Conv1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Conv1_1x1: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -942,7 +952,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("SiLU1_3x3 backward", silu1_3x3_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - SiLU1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - SiLU1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -958,7 +968,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("BN1_3x3 backward", bn1_3x3_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - BN1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - BN1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(start_op);
@@ -972,7 +982,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Conv1_3x3 backward", conv1_3x3_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Conv1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Conv1_3x3: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Combine gradients from shortcut and main path
@@ -989,12 +999,12 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     check_gradients("Input gradient", input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Backward - Input combine: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Backward - Input combine: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(end_total);
     if (model->timing_verbose) {
-        printf("Backward - Total: %.3f ms\n", TIME_DIFF(start_total, end_total, timing_freq));
+        printf("Backward - Total: %.3f ms\n", TIME_DIFF(start_total, end_total));
     }
 
     return input_grad;
@@ -1020,7 +1030,7 @@ float cnn_training_step(CNN* model, CNNForwardResult* forward_result, Tensor* ta
     float loss = loss_result->loss;
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Training Step - Loss Computation: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Training Step - Loss Computation: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     adam_zero_grad(model->optimizer);
@@ -1041,12 +1051,12 @@ float cnn_training_step(CNN* model, CNNForwardResult* forward_result, Tensor* ta
     GET_TIME(end_op);
 
     if (model->timing_verbose) {
-        printf("Training Step - Optimizer Step: %.3f ms\n", TIME_DIFF(start_op, end_op, timing_freq));
+        printf("Training Step - Optimizer Step: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     GET_TIME(end_total);
     if (model->timing_verbose) {
-        printf("Training Step - Total: %.3f ms\n", TIME_DIFF(start_total, end_total, timing_freq));
+        printf("Training Step - Total: %.3f ms\n", TIME_DIFF(start_total, end_total));
     }
 
     cross_entropy_result_free(loss_result);
@@ -1209,44 +1219,55 @@ int cnn_get_parameters(CNN* model, Tensor*** params, Tensor*** grads) {
     return num_params;
 }
 
+void cnn_free_parameters(Tensor** params, Tensor** grads) {
+    if (params) {
+        free(params);
+    }
+    if (grads) {
+        free(grads);
+    }
+}
+
 int cnn_load_weights(CNN* model, int epoch) {
-    char conv1_3x3_weight_path[256];
-    char conv1_3x3_bias_path[256];
-    char bn1_3x3_gamma_path[256];
-    char bn1_3x3_beta_path[256];
-    char conv1_1x1_weight_path[256];
-    char conv1_1x1_bias_path[256];
-    char bn1_1x1_gamma_path[256];
-    char bn1_1x1_beta_path[256];
-    char shortcut1_weight_path[256];
-    char shortcut1_bias_path[256];
+    // Use larger buffer to prevent overflow (max needed is ~46 chars)
+    #define PATH_BUFFER_SIZE 512
+    char conv1_3x3_weight_path[PATH_BUFFER_SIZE];
+    char conv1_3x3_bias_path[PATH_BUFFER_SIZE];
+    char bn1_3x3_gamma_path[PATH_BUFFER_SIZE];
+    char bn1_3x3_beta_path[PATH_BUFFER_SIZE];
+    char conv1_1x1_weight_path[PATH_BUFFER_SIZE];
+    char conv1_1x1_bias_path[PATH_BUFFER_SIZE];
+    char bn1_1x1_gamma_path[PATH_BUFFER_SIZE];
+    char bn1_1x1_beta_path[PATH_BUFFER_SIZE];
+    char shortcut1_weight_path[PATH_BUFFER_SIZE];
+    char shortcut1_bias_path[PATH_BUFFER_SIZE];
 
-    char conv2_3x3_weight_path[256];
-    char conv2_3x3_bias_path[256];
-    char bn2_3x3_gamma_path[256];
-    char bn2_3x3_beta_path[256];
-    char conv2_1x1_weight_path[256];
-    char conv2_1x1_bias_path[256];
-    char bn2_1x1_gamma_path[256];
-    char bn2_1x1_beta_path[256];
-    char shortcut2_weight_path[256];
-    char shortcut2_bias_path[256];
+    char conv2_3x3_weight_path[PATH_BUFFER_SIZE];
+    char conv2_3x3_bias_path[PATH_BUFFER_SIZE];
+    char bn2_3x3_gamma_path[PATH_BUFFER_SIZE];
+    char bn2_3x3_beta_path[PATH_BUFFER_SIZE];
+    char conv2_1x1_weight_path[PATH_BUFFER_SIZE];
+    char conv2_1x1_bias_path[PATH_BUFFER_SIZE];
+    char bn2_1x1_gamma_path[PATH_BUFFER_SIZE];
+    char bn2_1x1_beta_path[PATH_BUFFER_SIZE];
+    char shortcut2_weight_path[PATH_BUFFER_SIZE];
+    char shortcut2_bias_path[PATH_BUFFER_SIZE];
 
-    char conv3_3x3_weight_path[256];
-    char conv3_3x3_bias_path[256];
-    char bn3_3x3_gamma_path[256];
-    char bn3_3x3_beta_path[256];
-    char conv3_1x1_weight_path[256];
-    char conv3_1x1_bias_path[256];
-    char bn3_1x1_gamma_path[256];
-    char bn3_1x1_beta_path[256];
-    char shortcut3_weight_path[256];
-    char shortcut3_bias_path[256];
+    char conv3_3x3_weight_path[PATH_BUFFER_SIZE];
+    char conv3_3x3_bias_path[PATH_BUFFER_SIZE];
+    char bn3_3x3_gamma_path[PATH_BUFFER_SIZE];
+    char bn3_3x3_beta_path[PATH_BUFFER_SIZE];
+    char conv3_1x1_weight_path[PATH_BUFFER_SIZE];
+    char conv3_1x1_bias_path[PATH_BUFFER_SIZE];
+    char bn3_1x1_gamma_path[PATH_BUFFER_SIZE];
+    char bn3_1x1_beta_path[PATH_BUFFER_SIZE];
+    char shortcut3_weight_path[PATH_BUFFER_SIZE];
+    char shortcut3_bias_path[PATH_BUFFER_SIZE];
 
-    char fc1_weight_path[256];
-    char fc1_bias_path[256];
-    char fc2_weight_path[256];
-    char fc2_bias_path[256];
+    char fc1_weight_path[PATH_BUFFER_SIZE];
+    char fc1_bias_path[PATH_BUFFER_SIZE];
+    char fc2_weight_path[PATH_BUFFER_SIZE];
+    char fc2_bias_path[PATH_BUFFER_SIZE];
 
     sprintf(conv1_3x3_weight_path, "weights/conv1_3x3_weight_epoch_%d.bin", epoch);
     sprintf(conv1_3x3_bias_path, "weights/conv1_3x3_bias_epoch_%d.bin", epoch);
@@ -1410,4 +1431,5 @@ int cnn_load_weights_from_files(CNN* model,
 
     printf("Weights loaded successfully from files\n");
     return 1;
+    #undef PATH_BUFFER_SIZE
 }

@@ -18,6 +18,21 @@ double get_wall_time_ms() {
     return (double)tv.tv_sec * 1000.0 + (double)tv.tv_usec / 1000.0;
 }
 
+// Format time duration into human-readable string
+void format_time_duration(double seconds, char* buffer, size_t buffer_size) {
+    if (seconds < 60) {
+        snprintf(buffer, buffer_size, "%.0fs", seconds);
+    } else if (seconds < 3600) {
+        int minutes = (int)(seconds / 60);
+        int secs = (int)(seconds) % 60;
+        snprintf(buffer, buffer_size, "%dm%ds", minutes, secs);
+    } else {
+        int hours = (int)(seconds / 3600);
+        int minutes = (int)((seconds - hours * 3600) / 60);
+        snprintf(buffer, buffer_size, "%dh%dm", hours, minutes);
+    }
+}
+
 // Simple progress bar function (tqdm-like)
 void print_progress_bar(int current, int total, const char* prefix, float loss, float acc, float time_per_batch, float total_elapsed_time) {
     const int bar_width = 30;
@@ -483,8 +498,7 @@ void setup_optimizer_scheduler(CNN* model) {
     model->scheduler = step_lr_create(model->optimizer, 7, 0.1f);
 
     // Free parameter arrays
-    free(params);
-    free(grads);
+    cnn_free_parameters(params, grads);
 }
 
 int main() {
@@ -546,9 +560,27 @@ int main() {
 
     printf("Starting training for %d epochs...\n\n", num_epochs);
 
+    // Track overall training time for ETA calculation
+    double total_training_elapsed = 0.0;
+
     // Training loop
     for (int epoch = 0; epoch < num_epochs; epoch++) {
-        printf("Epoch %d/%d\n", epoch + 1, num_epochs);
+        double epoch_start_time = get_wall_time_ms();
+
+        // Calculate overall training ETA
+        char overall_eta_str[32] = "";
+        if (epoch > 0) {
+            double avg_time_per_epoch = total_training_elapsed / epoch;
+            double remaining_epochs = num_epochs - epoch;
+            double eta_seconds = remaining_epochs * avg_time_per_epoch;
+            format_time_duration(eta_seconds, overall_eta_str, sizeof(overall_eta_str));
+        }
+
+        printf("Epoch %d/%d", epoch + 1, num_epochs);
+        if (strlen(overall_eta_str) > 0) {
+            printf(" - ETA: %s", overall_eta_str);
+        }
+        printf("\n");
         printf("----------\n");
 
         cnn_train(model);
@@ -652,6 +684,11 @@ int main() {
         free(batch_losses);
         free(batch_accuracies);
         free(batch_times);
+
+        // Track epoch time for overall ETA
+        double epoch_end_time = get_wall_time_ms();
+        double epoch_duration = (epoch_end_time - epoch_start_time) / 1000.0; // Convert to seconds
+        total_training_elapsed += epoch_duration;
 
         // Step the scheduler
         cnn_step_scheduler(model);
