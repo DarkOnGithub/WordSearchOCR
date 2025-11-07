@@ -1082,7 +1082,7 @@ Tensor* cnn_predict(CNN* model, Tensor* input) {
             }
         }
 
-        predictions->data[b] = (float)(max_idx + 1); // 1-based indexing: 1-26 for a-z
+        predictions->data[b] = (float)max_idx; // 0-based indexing: 0-25 for a-z
     }
 
     cnn_forward_result_free(forward_result);

@@ -630,8 +630,8 @@ def create_font_based_dataset(target_dir, total_images=100000, train_split=0.85,
 
     # Define letters (a-z upper and lower, but same labels for upper/lower case)
     letters = string.ascii_letters  # 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    # Map both upper and lower case to same label (a=1, A=1, b=2, B=2, etc.)
-    letter_to_label = {letter: ord(letter.lower()) - ord('a') for letter in letters} # Using 1-based indexing
+    # Map both upper and lower case to same label (a=0, A=0, b=1, B=1, etc.)
+    letter_to_label = {letter: ord(letter.lower()) - ord('a') for letter in letters} # Using 0-based indexing
 
     unique_classes = len(set(letter_to_label.values()))
     print(f"Creating dataset with {unique_classes} letter classes (upper/lower case share labels)")

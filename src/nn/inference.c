@@ -322,7 +322,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        char predicted_letter = 'A' + predicted_class +1 ;
+        char predicted_letter = 'A' + predicted_class;
         float percentage = max_prob * 100.0f;
 
         printf("  Prediction: %c (%.2f%% confidence)\n", predicted_letter, percentage);

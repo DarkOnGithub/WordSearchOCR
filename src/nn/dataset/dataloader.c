@@ -138,6 +138,11 @@ unsigned char* load_idx_labels(const char* path, int* num_labels) {
 
     printf("  Successfully loaded label data\n");
     fclose(file);
+    int min = -1;
+    for (int i = 0; i < *num_labels; i++) {
+        if (data[i] < min) min = data[i];
+    }
+    printf("  Min label: %d\n", min);
     return data;
 }
 
@@ -183,7 +188,7 @@ void* load_batch_worker(void* args) {
                 }
             }
 
-            // Set label (as class index, 1-based indexing: 1-26 for a-z)
+            // Set label (as class index, 1-based indexing: 1-26 for a-z in EMNIST)
             thread_args->dataset->batches[batch_idx].labels->data[i] =
                 (float)thread_args->label_data[sample_idx] + 1.0f;
         }
@@ -293,12 +298,12 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
     int filtered_idx = 0;
     for (int i = 0; i < num_images; i++) {
         int label = (int)label_data[i];
-        if (label >= 1 && label <= 26 && filtered_idx < final_sample_count) {
+        if (label >= 0 && label <= 25 && filtered_idx < final_sample_count) {
             memcpy(&filtered_images[filtered_idx * EMNIST_IMAGE_SIZE],
                    &image_data[i * EMNIST_IMAGE_SIZE],
                    EMNIST_IMAGE_SIZE);
 
-            filtered_labels[filtered_idx] = label - 1;  // Convert 1-26 (A-Z) to 0-25
+            filtered_labels[filtered_idx] = label;  // Labels are already 0-25
 
             filtered_idx++;
         }

@@ -84,134 +84,236 @@ float calculate_accuracy(Tensor* predictions, Tensor* targets) {
     return (float)correct / batch_size;
 }
 
-// Save model weights to binary files
+// Save model weights to binary files (matching cnn.c format)
 void save_model_weights(CNN* model, int epoch) {
     // Create weights directory if it doesn't exist
-    mkdir("training_data/weights", 0755);
+    mkdir("weights", 0755);
 
-    char filename[256];
+    // Use larger buffer to prevent overflow (max needed is ~46 chars)
+    #define PATH_BUFFER_SIZE 512
+    char conv1_3x3_weight_path[PATH_BUFFER_SIZE];
+    char conv1_3x3_bias_path[PATH_BUFFER_SIZE];
+    char bn1_3x3_gamma_path[PATH_BUFFER_SIZE];
+    char bn1_3x3_beta_path[PATH_BUFFER_SIZE];
+    char conv1_1x1_weight_path[PATH_BUFFER_SIZE];
+    char conv1_1x1_bias_path[PATH_BUFFER_SIZE];
+    char bn1_1x1_gamma_path[PATH_BUFFER_SIZE];
+    char bn1_1x1_beta_path[PATH_BUFFER_SIZE];
+    char shortcut1_weight_path[PATH_BUFFER_SIZE];
+    char shortcut1_bias_path[PATH_BUFFER_SIZE];
 
-    // Save conv1_3x3 weights and bias
-    sprintf(filename, "training_data/weights/conv1_3x3_weight_epoch_%d.bin", epoch);
-    FILE* f = fopen(filename, "wb");
-    if (f) {
+    char conv2_3x3_weight_path[PATH_BUFFER_SIZE];
+    char conv2_3x3_bias_path[PATH_BUFFER_SIZE];
+    char bn2_3x3_gamma_path[PATH_BUFFER_SIZE];
+    char bn2_3x3_beta_path[PATH_BUFFER_SIZE];
+    char conv2_1x1_weight_path[PATH_BUFFER_SIZE];
+    char conv2_1x1_bias_path[PATH_BUFFER_SIZE];
+    char bn2_1x1_gamma_path[PATH_BUFFER_SIZE];
+    char bn2_1x1_beta_path[PATH_BUFFER_SIZE];
+    char shortcut2_weight_path[PATH_BUFFER_SIZE];
+    char shortcut2_bias_path[PATH_BUFFER_SIZE];
+
+    char conv3_3x3_weight_path[PATH_BUFFER_SIZE];
+    char conv3_3x3_bias_path[PATH_BUFFER_SIZE];
+    char bn3_3x3_gamma_path[PATH_BUFFER_SIZE];
+    char bn3_3x3_beta_path[PATH_BUFFER_SIZE];
+    char conv3_1x1_weight_path[PATH_BUFFER_SIZE];
+    char conv3_1x1_bias_path[PATH_BUFFER_SIZE];
+    char bn3_1x1_gamma_path[PATH_BUFFER_SIZE];
+    char bn3_1x1_beta_path[PATH_BUFFER_SIZE];
+    char shortcut3_weight_path[PATH_BUFFER_SIZE];
+    char shortcut3_bias_path[PATH_BUFFER_SIZE];
+
+    char fc1_weight_path[PATH_BUFFER_SIZE];
+    char fc1_bias_path[PATH_BUFFER_SIZE];
+    char fc2_weight_path[PATH_BUFFER_SIZE];
+    char fc2_bias_path[PATH_BUFFER_SIZE];
+
+    sprintf(conv1_3x3_weight_path, "weights/conv1_3x3_weight_epoch_%d.bin", epoch);
+    sprintf(conv1_3x3_bias_path, "weights/conv1_3x3_bias_epoch_%d.bin", epoch);
+    sprintf(bn1_3x3_gamma_path, "weights/bn1_3x3_gamma_epoch_%d.bin", epoch);
+    sprintf(bn1_3x3_beta_path, "weights/bn1_3x3_beta_epoch_%d.bin", epoch);
+    sprintf(conv1_1x1_weight_path, "weights/conv1_1x1_weight_epoch_%d.bin", epoch);
+    sprintf(conv1_1x1_bias_path, "weights/conv1_1x1_bias_epoch_%d.bin", epoch);
+    sprintf(bn1_1x1_gamma_path, "weights/bn1_1x1_gamma_epoch_%d.bin", epoch);
+    sprintf(bn1_1x1_beta_path, "weights/bn1_1x1_beta_epoch_%d.bin", epoch);
+    sprintf(shortcut1_weight_path, "weights/shortcut1_weight_epoch_%d.bin", epoch);
+    sprintf(shortcut1_bias_path, "weights/shortcut1_bias_epoch_%d.bin", epoch);
+
+    sprintf(conv2_3x3_weight_path, "weights/conv2_3x3_weight_epoch_%d.bin", epoch);
+    sprintf(conv2_3x3_bias_path, "weights/conv2_3x3_bias_epoch_%d.bin", epoch);
+    sprintf(bn2_3x3_gamma_path, "weights/bn2_3x3_gamma_epoch_%d.bin", epoch);
+    sprintf(bn2_3x3_beta_path, "weights/bn2_3x3_beta_epoch_%d.bin", epoch);
+    sprintf(conv2_1x1_weight_path, "weights/conv2_1x1_weight_epoch_%d.bin", epoch);
+    sprintf(conv2_1x1_bias_path, "weights/conv2_1x1_bias_epoch_%d.bin", epoch);
+    sprintf(bn2_1x1_gamma_path, "weights/bn2_1x1_gamma_epoch_%d.bin", epoch);
+    sprintf(bn2_1x1_beta_path, "weights/bn2_1x1_beta_epoch_%d.bin", epoch);
+    sprintf(shortcut2_weight_path, "weights/shortcut2_weight_epoch_%d.bin", epoch);
+    sprintf(shortcut2_bias_path, "weights/shortcut2_bias_epoch_%d.bin", epoch);
+
+    sprintf(conv3_3x3_weight_path, "weights/conv3_3x3_weight_epoch_%d.bin", epoch);
+    sprintf(conv3_3x3_bias_path, "weights/conv3_3x3_bias_epoch_%d.bin", epoch);
+    sprintf(bn3_3x3_gamma_path, "weights/bn3_3x3_gamma_epoch_%d.bin", epoch);
+    sprintf(bn3_3x3_beta_path, "weights/bn3_3x3_beta_epoch_%d.bin", epoch);
+    sprintf(conv3_1x1_weight_path, "weights/conv3_1x1_weight_epoch_%d.bin", epoch);
+    sprintf(conv3_1x1_bias_path, "weights/conv3_1x1_bias_epoch_%d.bin", epoch);
+    sprintf(bn3_1x1_gamma_path, "weights/bn3_1x1_gamma_epoch_%d.bin", epoch);
+    sprintf(bn3_1x1_beta_path, "weights/bn3_1x1_beta_epoch_%d.bin", epoch);
+    sprintf(shortcut3_weight_path, "weights/shortcut3_weight_epoch_%d.bin", epoch);
+    sprintf(shortcut3_bias_path, "weights/shortcut3_bias_epoch_%d.bin", epoch);
+
+    sprintf(fc1_weight_path, "weights/fc1_weight_epoch_%d.bin", epoch);
+    sprintf(fc1_bias_path, "weights/fc1_bias_epoch_%d.bin", epoch);
+    sprintf(fc2_weight_path, "weights/fc2_weight_epoch_%d.bin", epoch);
+    sprintf(fc2_bias_path, "weights/fc2_bias_epoch_%d.bin", epoch);
+
+    // Block 1
+    FILE* f;
+    if ((f = fopen(conv1_3x3_weight_path, "wb"))) {
         fwrite(model->conv1_3x3->weight->data, sizeof(float), model->conv1_3x3->weight->size, f);
         fclose(f);
     }
-
-    sprintf(filename, "training_data/weights/conv1_3x3_bias_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(conv1_3x3_bias_path, "wb"))) {
         fwrite(model->conv1_3x3->bias->data, sizeof(float), model->conv1_3x3->bias->size, f);
         fclose(f);
     }
-
-    // Save conv1_1x1 weights and bias
-    sprintf(filename, "training_data/weights/conv1_1x1_weight_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(bn1_3x3_gamma_path, "wb"))) {
+        fwrite(model->bn1_3x3->layer_grad->weights->data, sizeof(float), model->bn1_3x3->layer_grad->weights->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(bn1_3x3_beta_path, "wb"))) {
+        fwrite(model->bn1_3x3->layer_grad->biases->data, sizeof(float), model->bn1_3x3->layer_grad->biases->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(conv1_1x1_weight_path, "wb"))) {
         fwrite(model->conv1_1x1->weight->data, sizeof(float), model->conv1_1x1->weight->size, f);
         fclose(f);
     }
-
-    sprintf(filename, "training_data/weights/conv1_1x1_bias_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(conv1_1x1_bias_path, "wb"))) {
         fwrite(model->conv1_1x1->bias->data, sizeof(float), model->conv1_1x1->bias->size, f);
         fclose(f);
     }
+    if ((f = fopen(bn1_1x1_gamma_path, "wb"))) {
+        fwrite(model->bn1_1x1->layer_grad->weights->data, sizeof(float), model->bn1_1x1->layer_grad->weights->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(bn1_1x1_beta_path, "wb"))) {
+        fwrite(model->bn1_1x1->layer_grad->biases->data, sizeof(float), model->bn1_1x1->layer_grad->biases->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(shortcut1_weight_path, "wb"))) {
+        fwrite(model->shortcut1->weight->data, sizeof(float), model->shortcut1->weight->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(shortcut1_bias_path, "wb"))) {
+        fwrite(model->shortcut1->bias->data, sizeof(float), model->shortcut1->bias->size, f);
+        fclose(f);
+    }
 
-    // Save conv2_3x3 weights and bias
-    sprintf(filename, "training_data/weights/conv2_3x3_weight_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    // Block 2
+    if ((f = fopen(conv2_3x3_weight_path, "wb"))) {
         fwrite(model->conv2_3x3->weight->data, sizeof(float), model->conv2_3x3->weight->size, f);
         fclose(f);
     }
-
-    sprintf(filename, "training_data/weights/conv2_3x3_bias_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(conv2_3x3_bias_path, "wb"))) {
         fwrite(model->conv2_3x3->bias->data, sizeof(float), model->conv2_3x3->bias->size, f);
         fclose(f);
     }
-
-    // Save conv2_1x1 weights and bias
-    sprintf(filename, "training_data/weights/conv2_1x1_weight_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(bn2_3x3_gamma_path, "wb"))) {
+        fwrite(model->bn2_3x3->layer_grad->weights->data, sizeof(float), model->bn2_3x3->layer_grad->weights->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(bn2_3x3_beta_path, "wb"))) {
+        fwrite(model->bn2_3x3->layer_grad->biases->data, sizeof(float), model->bn2_3x3->layer_grad->biases->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(conv2_1x1_weight_path, "wb"))) {
         fwrite(model->conv2_1x1->weight->data, sizeof(float), model->conv2_1x1->weight->size, f);
         fclose(f);
     }
-
-    sprintf(filename, "training_data/weights/conv2_1x1_bias_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(conv2_1x1_bias_path, "wb"))) {
         fwrite(model->conv2_1x1->bias->data, sizeof(float), model->conv2_1x1->bias->size, f);
         fclose(f);
     }
+    if ((f = fopen(bn2_1x1_gamma_path, "wb"))) {
+        fwrite(model->bn2_1x1->layer_grad->weights->data, sizeof(float), model->bn2_1x1->layer_grad->weights->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(bn2_1x1_beta_path, "wb"))) {
+        fwrite(model->bn2_1x1->layer_grad->biases->data, sizeof(float), model->bn2_1x1->layer_grad->biases->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(shortcut2_weight_path, "wb"))) {
+        fwrite(model->shortcut2->weight->data, sizeof(float), model->shortcut2->weight->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(shortcut2_bias_path, "wb"))) {
+        fwrite(model->shortcut2->bias->data, sizeof(float), model->shortcut2->bias->size, f);
+        fclose(f);
+    }
 
-    // Save conv3_3x3 weights and bias
-    sprintf(filename, "training_data/weights/conv3_3x3_weight_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    // Block 3
+    if ((f = fopen(conv3_3x3_weight_path, "wb"))) {
         fwrite(model->conv3_3x3->weight->data, sizeof(float), model->conv3_3x3->weight->size, f);
         fclose(f);
     }
-
-    sprintf(filename, "training_data/weights/conv3_3x3_bias_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(conv3_3x3_bias_path, "wb"))) {
         fwrite(model->conv3_3x3->bias->data, sizeof(float), model->conv3_3x3->bias->size, f);
         fclose(f);
     }
-
-    // Save conv3_1x1 weights and bias
-    sprintf(filename, "training_data/weights/conv3_1x1_weight_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(bn3_3x3_gamma_path, "wb"))) {
+        fwrite(model->bn3_3x3->layer_grad->weights->data, sizeof(float), model->bn3_3x3->layer_grad->weights->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(bn3_3x3_beta_path, "wb"))) {
+        fwrite(model->bn3_3x3->layer_grad->biases->data, sizeof(float), model->bn3_3x3->layer_grad->biases->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(conv3_1x1_weight_path, "wb"))) {
         fwrite(model->conv3_1x1->weight->data, sizeof(float), model->conv3_1x1->weight->size, f);
         fclose(f);
     }
-
-    sprintf(filename, "training_data/weights/conv3_1x1_bias_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(conv3_1x1_bias_path, "wb"))) {
         fwrite(model->conv3_1x1->bias->data, sizeof(float), model->conv3_1x1->bias->size, f);
         fclose(f);
     }
+    if ((f = fopen(bn3_1x1_gamma_path, "wb"))) {
+        fwrite(model->bn3_1x1->layer_grad->weights->data, sizeof(float), model->bn3_1x1->layer_grad->weights->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(bn3_1x1_beta_path, "wb"))) {
+        fwrite(model->bn3_1x1->layer_grad->biases->data, sizeof(float), model->bn3_1x1->layer_grad->biases->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(shortcut3_weight_path, "wb"))) {
+        fwrite(model->shortcut3->weight->data, sizeof(float), model->shortcut3->weight->size, f);
+        fclose(f);
+    }
+    if ((f = fopen(shortcut3_bias_path, "wb"))) {
+        fwrite(model->shortcut3->bias->data, sizeof(float), model->shortcut3->bias->size, f);
+        fclose(f);
+    }
 
-    // Save fc1 weights and bias
-    sprintf(filename, "training_data/weights/fc1_weight_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    // FC layers
+    if ((f = fopen(fc1_weight_path, "wb"))) {
         fwrite(model->fc1->layer_grad->weights->data, sizeof(float), model->fc1->layer_grad->weights->size, f);
         fclose(f);
     }
-
-    sprintf(filename, "training_data/weights/fc1_bias_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(fc1_bias_path, "wb"))) {
         fwrite(model->fc1->layer_grad->biases->data, sizeof(float), model->fc1->layer_grad->biases->size, f);
         fclose(f);
     }
-
-    // Save fc2 weights and bias
-    sprintf(filename, "training_data/weights/fc2_weight_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(fc2_weight_path, "wb"))) {
         fwrite(model->fc2->layer_grad->weights->data, sizeof(float), model->fc2->layer_grad->weights->size, f);
         fclose(f);
     }
-
-    sprintf(filename, "training_data/weights/fc2_bias_epoch_%d.bin", epoch);
-    f = fopen(filename, "wb");
-    if (f) {
+    if ((f = fopen(fc2_bias_path, "wb"))) {
         fwrite(model->fc2->layer_grad->biases->data, sizeof(float), model->fc2->layer_grad->biases->size, f);
         fclose(f);
     }
 
     printf("  Weights saved for epoch %d\n", epoch);
+    #undef PATH_BUFFER_SIZE
 }
 
 // Save loss data to text file (compact format - space separated)
@@ -401,7 +503,7 @@ int find_latest_checkpoint(CheckpointMetadata* metadata) {
 // Load model weights from checkpoint directory
 int load_model_weights_from_checkpoint(CNN* model, int epoch) {
     char weight_dir[256];
-    sprintf(weight_dir, "training_data/weights");
+    sprintf(weight_dir, "weights");
 
     // Check if weights directory exists
     DIR* dir = opendir(weight_dir);
@@ -410,10 +512,6 @@ int load_model_weights_from_checkpoint(CNN* model, int epoch) {
         return 0;
     }
     closedir(dir);
-
-    // Use the existing cnn_load_weights function but redirect to checkpoint weights
-    // We need to temporarily change directory or modify the paths
-    // For now, we'll load from the regular weights directory since checkpoints save there too
 
     printf("Loading model weights from epoch %d...\n", epoch);
     return cnn_load_weights(model, epoch);
@@ -525,7 +623,9 @@ void save_all_images(const Dataset* dataset, const char* output_dir) {
             }
 
             // Create filename: A/00001_A.png, B/00002_B.png, etc.
+            printf("Saving image %d of %d to %s/%c\n", image_count + 1, dataset->total_samples, output_dir, label);
             char letter = 'A' + label;
+
             char class_dir[256];
             sprintf(class_dir, "%s/%c", output_dir, letter);
             char filename[512];
@@ -605,11 +705,11 @@ int main(int argc, char* argv[]) {
     // Seed random number generator
     srand(time(NULL));
 
-    // Load EMNIST lowercase letters dataset (filtered from byclass)
+    int NUM_TRAIN_SAMPLES = 100;
     printf("Loading EMNIST Lowercase Letters dataset...\n");
     Dataset* train_dataset = dataset_load_emnist("data/font_letters_train-images.idx",
                                                 "data/font_letters_train-labels.idx",
-                                                64, 1, 4, NULL);  // batch_size=64, shuffle=1, num_workers=4, max_samples=NULL (use all)
+                                                64, 1, 4, &NUM_TRAIN_SAMPLES);  // batch_size=64, shuffle=1, num_workers=4, max_samples=NULL (use all)
 
     Dataset* test_dataset = dataset_load_emnist("data/font_letters_test-images.idx",
                                                "data/font_letters_test-labels.idx",
@@ -628,8 +728,8 @@ int main(int argc, char* argv[]) {
     printf("Test dataset: %d batches, %d total samples\n\n", test_dataset->num_batches, test_dataset->total_samples);
 
     // Save all training images to disk
-    // printf("Saving training images...\n");
-    // save_all_images(train_dataset, "train_images");
+    printf("Saving training images...\n");
+    save_all_images(train_dataset, "train_images");
 
     // Check for existing checkpoints to resume training
     CheckpointMetadata checkpoint_metadata;
