@@ -623,7 +623,6 @@ void save_all_images(const Dataset* dataset, const char* output_dir) {
             }
 
             // Create filename: A/00001_A.png, B/00002_B.png, etc.
-            printf("Saving image %d of %d to %s/%c\n", image_count + 1, dataset->total_samples, output_dir, label);
             char letter = 'A' + label;
 
             char class_dir[256];
@@ -705,15 +704,16 @@ int main(int argc, char* argv[]) {
     // Seed random number generator
     srand(time(NULL));
 
-    int NUM_TRAIN_SAMPLES = 100;
+    int NUM_TRAIN_SAMPLES = 10000;
+    int NUM_TEST_SAMPLES = 1000;
     printf("Loading EMNIST Lowercase Letters dataset...\n");
     Dataset* train_dataset = dataset_load_emnist("data/font_letters_train-images.idx",
                                                 "data/font_letters_train-labels.idx",
-                                                64, 1, 4, NULL);  // batch_size=64, shuffle=1, num_workers=4, max_samples=NULL (use all)
+                                                64, 1, 4, &NUM_TRAIN_SAMPLES);  // batch_size=64, shuffle=1, num_workers=4, max_samples=NULL (use all)
 
     Dataset* test_dataset = dataset_load_emnist("data/font_letters_test-images.idx",
                                                "data/font_letters_test-labels.idx",
-                                               1000, 0, 1, NULL);  // batch_size=1000, shuffle=0, num_workers=1, max_samples=NULL (use all)
+                                               1000, 0, 1, &NUM_TEST_SAMPLES);  // batch_size=1000, shuffle=0, num_workers=1, max_samples=NULL (use all)
     if (!train_dataset || !test_dataset) {
         fprintf(stderr, "Failed to load dataset\n");
         return 1;

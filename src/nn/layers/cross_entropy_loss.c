@@ -178,7 +178,7 @@ CrossEntropyOutput* cross_entropy_loss_forward(CrossEntropyLoss* loss, Tensor* i
     float total_loss = 0.0f;
     for (int b = 0; b < batch_size; b++) {
         int target_class = (int)targets->data[b];
-        if (target_class < 0 || target_class >= num_classes) {
+        if (target_class <= 0 || target_class > num_classes) {
             fprintf(stderr, "Error: Target class %d out of range [0, %d]\n", target_class, num_classes - 1);
             tensor_free(softmax_output);
             return NULL;

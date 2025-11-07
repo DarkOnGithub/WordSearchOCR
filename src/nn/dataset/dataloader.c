@@ -138,11 +138,6 @@ unsigned char* load_idx_labels(const char* path, int* num_labels) {
 
     printf("  Successfully loaded label data\n");
     fclose(file);
-    int min = -1;
-    for (int i = 0; i < *num_labels; i++) {
-        if (data[i] < min) min = data[i];
-    }
-    printf("  Min label: %d\n", min);
     return data;
 }
 
