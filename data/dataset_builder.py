@@ -587,7 +587,7 @@ def process_single_letter(args):
 
     # Prepare sample data if needed
     sample_data = None
-    if save_samples and len(train_images) >= 10:
+    if save_samples and len(train_images) >= 10 and letter.islower():
         sample_images = train_images[:min(10, len(train_images))]
         sample_data = {
             'letter': letter,
@@ -860,5 +860,5 @@ if __name__ == "__main__":
     random.seed(42)
 
     # Create optimized dataset with performance-enhanced augmentations
-    target_dir = "data/font_letter_dataset_enhanced"
+    target_dir = "data"
     create_font_based_dataset(target_dir, total_images=200000, train_split=0.85, save_samples=True)

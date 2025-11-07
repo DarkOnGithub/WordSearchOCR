@@ -174,18 +174,18 @@ void* load_batch_worker(void* args) {
             // Copy image data (normalize to 0-1 range)
             for (int y = 0; y < 28; y++) {
                 for (int x = 0; x < 28; x++) {
-                    int file_pixel_idx = sample_idx * EMNIST_IMAGE_SIZE + y * 28 + x;
+                    int file_pixel_idx = sample_idx * IMAGE_SIZE + y * 28 + x;
                     int tensor_pixel_idx = y * 28 + x;
-                    int tensor_idx = i * EMNIST_IMAGE_SIZE + tensor_pixel_idx;
+                    int tensor_idx = i * IMAGE_SIZE + tensor_pixel_idx;
 
                     thread_args->dataset->batches[batch_idx].data->data[tensor_idx] =
                         (float)thread_args->image_data[file_pixel_idx] / 255.0f;
                 }
             }
 
-            // Set label (as class index, 1-based indexing: 1-26 for a-z in EMNIST)
+            // Set label (as class index, 0-based indexing: 0-25 for a-z)
             thread_args->dataset->batches[batch_idx].labels->data[i] =
-                (float)thread_args->label_data[sample_idx] + 1.0f;
+                (float)thread_args->label_data[sample_idx];
         }
     }
 
@@ -193,7 +193,7 @@ void* load_batch_worker(void* args) {
 }
 
 
-// EMNIST dataset loading function with sample limit for testing
+// Font-based letter dataset loading function with sample limit for testing
 Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, int batch_size, int shuffle, int num_workers, int* max_samples) {
     printf("Loading images from: %s\n", images_path);
     printf("Loading labels from: %s\n", labels_path);
@@ -238,13 +238,13 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
         return NULL;
     }
 
-    // Custom font dataset should have classes 0-25 (A-Z, 0-based indexing)
+    // Dataset should have classes 0-25 (a-z, 0-based indexing)
     // Count valid samples and check class range
     int min_class = 26, max_class = -1;
     int filtered_count = 0;
     for (int i = 0; i < num_images; i++) {
         int label = (int)label_data[i];
-        if (label >= 0 && label <= 25) {  // letters A-Z (0-based)
+        if (label >= 0 && label <= 25) {  // letters a-z (0-based)
             filtered_count++;
             if (label < min_class) min_class = label;
             if (label > max_class) max_class = label;
@@ -252,7 +252,7 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
     }
 
     printf("Original dataset: %d samples\n", num_images);
-    printf("Filtered dataset (letters A-Z only): %d samples\n", filtered_count);
+    printf("Filtered dataset (letters a-z only): %d samples\n", filtered_count);
     printf("Class range: %d-%d\n", min_class, max_class);
 
     if (filtered_count == 0) {
@@ -262,15 +262,15 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
         return NULL;
     }
 
-    // Check that we have exactly 26 classes (A-Z, 0-based)
+    // Check that we have exactly 26 classes (a-z, 0-based)
     if (min_class != 0 || max_class != 25) {
-        printf("Error: Expected classes 0-25 (A-Z, 0-based), but found range %d-%d\n", min_class, max_class);
+        printf("Error: Expected classes 0-25 (a-z, 0-based), but found range %d-%d\n", min_class, max_class);
         free(image_data);
         free(label_data);
         return NULL;
     }
 
-    printf("✓ Confirmed: Dataset contains exactly 26 classes (A-Z, 0-based)\n");
+    printf("✓ Confirmed: Dataset contains exactly 26 classes (a-z, 0-based)\n");
 
     // Limit samples if max_samples is specified and positive
     int final_sample_count = filtered_count;
@@ -280,7 +280,7 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
     }
 
     // Create filtered arrays with final sample count
-    unsigned char* filtered_images = (unsigned char*)malloc(final_sample_count * EMNIST_IMAGE_SIZE);
+    unsigned char* filtered_images = (unsigned char*)malloc(final_sample_count * IMAGE_SIZE);
     unsigned char* filtered_labels = (unsigned char*)malloc(final_sample_count);
 
     if (!filtered_images || !filtered_labels) {
@@ -294,10 +294,10 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
     for (int i = 0; i < num_images; i++) {
         int label = (int)label_data[i];
         if (label >= 0 && label <= 25 && filtered_idx < final_sample_count) {
-            memcpy(&filtered_images[filtered_idx * EMNIST_IMAGE_SIZE],
-                   &image_data[i * EMNIST_IMAGE_SIZE],
-                   EMNIST_IMAGE_SIZE);
-
+            memcpy(&filtered_images[filtered_idx * IMAGE_SIZE],
+                   &image_data[i * IMAGE_SIZE],
+                   IMAGE_SIZE);
+            printf("Label %d: %d\n", filtered_idx, label);
             filtered_labels[filtered_idx] = label;  // Labels are already 0-25
 
             filtered_idx++;

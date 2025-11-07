@@ -704,16 +704,16 @@ int main(int argc, char* argv[]) {
     // Seed random number generator
     srand(time(NULL));
 
-    int NUM_TRAIN_SAMPLES = 10000;
-    int NUM_TEST_SAMPLES = 1000;
+    int NUM_TRAIN_SAMPLES = 100;
+    int NUM_TEST_SAMPLES = 10;
     printf("Loading EMNIST Lowercase Letters dataset...\n");
     Dataset* train_dataset = dataset_load_emnist("data/font_letters_train-images.idx",
                                                 "data/font_letters_train-labels.idx",
-                                                64, 1, 4, NULL);  // batch_size=64, shuffle=1, num_workers=4, max_samples=NULL (use all)
+                                                64, 1, 4, &NUM_TRAIN_SAMPLES);  // batch_size=64, shuffle=1, num_workers=4, max_samples=NULL (use all)
 
     Dataset* test_dataset = dataset_load_emnist("data/font_letters_test-images.idx",
                                                "data/font_letters_test-labels.idx",
-                                               1000, 0, 1, NULL);  // batch_size=1000, shuffle=0, num_workers=1, max_samples=NULL (use all)
+                                               1000, 0, 1, &NUM_TEST_SAMPLES);  // batch_size=1000, shuffle=0, num_workers=1, max_samples=NULL (use all)
     if (!train_dataset || !test_dataset) {
         fprintf(stderr, "Failed to load dataset\n");
         return 1;
@@ -728,8 +728,11 @@ int main(int argc, char* argv[]) {
     printf("Test dataset: %d batches, %d total samples\n\n", test_dataset->num_batches, test_dataset->total_samples);
 
     // // Save all training images to disk
-    // printf("Saving training images...\n");
-    // save_all_images(train_dataset, "train_images");
+    printf("Saving training images...\n");
+    save_all_images(train_dataset, "train_images");
+
+    printf("Saving test images...\n");
+    save_all_images(test_dataset, "test_images");
 
     // Check for existing checkpoints to resume training
     CheckpointMetadata checkpoint_metadata;
@@ -841,12 +844,12 @@ int main(int argc, char* argv[]) {
                 input_normalized->data[i] = (batch->data->data[i] - 0.5f) / 0.5f;  // Normalize to [-1,1]
             }
 
-            // Labels are already in range 0-25 (filtered and remapped by dataset loader: EMNIST 1-26 -> 0-25)
+            // Labels are in range 0-25 (filtered and remapped by dataset loader: EMNIST 1-26 -> 0-25)
             int targets_shape[] = {batch->labels->shape[0], 1, 1, 1};
             Tensor* targets_adjusted = tensor_create(targets_shape, 4);
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < batch->labels->size; i++) {
-                targets_adjusted->data[i] = batch->labels->data[i];  // Already 0-25
+                targets_adjusted->data[i] = batch->labels->data[i];  // 0-25 range
             }
 
             // Forward pass
@@ -938,12 +941,12 @@ int main(int argc, char* argv[]) {
                 input_normalized->data[i] = (batch->data->data[i] - 0.5f) / 0.5f;
             }
 
-            // Labels are already in range 0-25 (filtered and remapped by dataset loader: EMNIST 1-26 -> 0-25)
+            // Labels are in range 0-25 (filtered and remapped by dataset loader: EMNIST 1-26 -> 0-25)
             int targets_shape[] = {batch->labels->shape[0], 1, 1, 1};
             Tensor* targets_adjusted = tensor_create(targets_shape, 4);
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < batch->labels->size; i++) {
-                targets_adjusted->data[i] = batch->labels->data[i];  // Already 0-25
+                targets_adjusted->data[i] = batch->labels->data[i];  // 0-25 range
             }
 
             // Get predictions
