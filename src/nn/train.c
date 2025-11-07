@@ -709,7 +709,7 @@ int main(int argc, char* argv[]) {
     printf("Loading EMNIST Lowercase Letters dataset...\n");
     Dataset* train_dataset = dataset_load_emnist("data/font_letters_train-images.idx",
                                                 "data/font_letters_train-labels.idx",
-                                                64, 1, 4, &NUM_TRAIN_SAMPLES);  // batch_size=64, shuffle=1, num_workers=4, max_samples=NULL (use all)
+                                                64, 1, 4, NULL);  // batch_size=64, shuffle=1, num_workers=4, max_samples=NULL (use all)
 
     Dataset* test_dataset = dataset_load_emnist("data/font_letters_test-images.idx",
                                                "data/font_letters_test-labels.idx",
@@ -727,9 +727,9 @@ int main(int argc, char* argv[]) {
     printf("Train dataset: %d batches, %d total samples\n", train_dataset->num_batches, train_dataset->total_samples);
     printf("Test dataset: %d batches, %d total samples\n\n", test_dataset->num_batches, test_dataset->total_samples);
 
-    // Save all training images to disk
-    printf("Saving training images...\n");
-    save_all_images(train_dataset, "train_images");
+    // // Save all training images to disk
+    // printf("Saving training images...\n");
+    // save_all_images(train_dataset, "train_images");
 
     // Check for existing checkpoints to resume training
     CheckpointMetadata checkpoint_metadata;
