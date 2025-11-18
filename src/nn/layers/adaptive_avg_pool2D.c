@@ -23,7 +23,6 @@ AdaptiveAvgPool2D* adaptive_avg_pool2d_create(int output_height, int output_widt
 
 static void compute_bin_boundaries(int input_size, int output_size,
                                    int* bin_starts, int* bin_sizes) {
-    // Precompute bin boundaries to avoid repeated floating point operations
     for (int i = 0; i < output_size; i++) {
         float start_float = (float)i * input_size / output_size;
         float end_float = (float)(i + 1) * input_size / output_size;
@@ -53,12 +52,10 @@ AdaptiveAvgPool2DOutput* adaptive_avg_pool2d_forward(AdaptiveAvgPool2D* layer, T
     int out_H = layer->output_height;
     int out_W = layer->output_width;
 
-    // Create output tensor [N, C, out_H, out_W]
     int output_shape[4] = {N, C, out_H, out_W};
     Tensor* output = tensor_create_zero(output_shape, 4);
     if (!output) return NULL;
 
-    // Precompute bin boundaries for height and width
     int* h_bin_starts = (int*)malloc(out_H * sizeof(int));
     int* h_bin_sizes = (int*)malloc(out_H * sizeof(int));
     int* w_bin_starts = (int*)malloc(out_W * sizeof(int));
@@ -73,13 +70,11 @@ AdaptiveAvgPool2DOutput* adaptive_avg_pool2d_forward(AdaptiveAvgPool2D* layer, T
     compute_bin_boundaries(H, out_H, h_bin_starts, h_bin_sizes);
     compute_bin_boundaries(W, out_W, w_bin_starts, w_bin_sizes);
 
-    // Cache input for backward pass
     if (layer->input_cache) {
         tensor_free(layer->input_cache);
     }
     layer->input_cache = tensor_from_data(input->data, input->shape, input->ndim);
 
-    // Parallelize over batch and channels
     #pragma omp parallel for collapse(2) schedule(dynamic)
     for (int n = 0; n < N; n++) {
         for (int c = 0; c < C; c++) {
@@ -190,7 +185,6 @@ AdaptiveAvgPool2DBackwardOutput* adaptive_avg_pool2d_backward(AdaptiveAvgPool2D*
                     for (int h = h_start; h < h_start + h_size && h < H; h++) {
                         for (int w = w_start; w < w_start + w_size && w < W; w++) {
                             int input_idx = ((n * C + c) * H + h) * W + w;
-                            #pragma omp atomic
                             input_grad->data[input_idx] += grad_value;
                         }
                     }

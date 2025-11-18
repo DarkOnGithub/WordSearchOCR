@@ -1,0 +1,19 @@
+Training Configuration
+=====================
+Timestamp: Sat Nov  8 14:43:40 2025
+Dataset: EMNIST Lowercase Letters (filtered from byclass, 164424 train samples, 29016 test samples)
+Epochs: 12
+Batch Size: 64
+Initial Learning Rate: 0.001000
+Weight Decay: 0.000100
+Early Stopping Patience: 10
+Optimizer: Adam (beta1=0.9, beta2=0.999, epsilon=1e-8)
+Scheduler: StepLR (step_size=7, gamma=0.1)
+Input Normalization: [-1, 1] (from [0,1])
+
+Data Format Descriptions:
+- training_log.txt: epoch, train_loss, train_accuracy, test_accuracy
+- batch_log.txt: epoch, batch_idx, batch_loss, batch_accuracy, time_ms
+- additional_metrics.txt: epoch, learning_rate, gradient_norm, lr_decay_factor, patience_counter
+- batch_log_epoch_X.txt: per-epoch batch data
+- weights/: binary weight files per epoch

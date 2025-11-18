@@ -81,8 +81,8 @@ WordGroups *find_word_groups(const BoundingBoxArray *boxes, int max_distance,
 BoundingBoxArray *select_main_word_group(const WordGroups *groups);
 
 /*
-    Main word detection function that processes an image and returns detected
-   word bounding boxes
+    Extract word regions from an image using simple contour-based approach
+    Similar to the Python algorithm provided by the user
 */
 BoundingBoxArray *detect_words(const char *image_path,
                                const char *debug_prefix);
@@ -92,3 +92,10 @@ BoundingBoxArray *detect_words(const char *image_path,
 */
 void draw_bounding_boxes(Image *image, const BoundingBoxArray *boxes,
                          uint32_t color, int thickness);
+
+/*
+    Extract individual letters from a word image and return them as a tensor of 28x28 images.
+    Each letter maintains its aspect ratio without stretching.
+    Returns a tensor with shape [num_letters, 28, 28] containing normalized pixel values [0,1].
+*/
+Tensor *extract_word_letters(const Image *word_image);

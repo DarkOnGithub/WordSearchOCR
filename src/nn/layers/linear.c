@@ -35,7 +35,7 @@ Linear* linear_create(int input_size, int output_size) {
         return NULL;
     }
 
-    init_kaiming_normal(layer->layer_grad->weights);
+    init_xavier_uniform(layer->layer_grad->weights);
     memset(layer->layer_grad->biases->data, 0, layer->layer_grad->biases->size * sizeof(float));
 
     layer->input_cache = NULL;

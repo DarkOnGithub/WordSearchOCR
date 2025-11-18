@@ -1,6 +1,7 @@
 #include "wordsearch/processor.h"
 #include "analysis/contour_analysis.h"
 #include "analysis/grid_analysis.h"
+#include "image/image.h"
 #include "processing/preprocessing.h"
 #include "wordsearch/word_detection.h"
 #include <stdio.h>
@@ -9,15 +10,27 @@
 #include <unistd.h>
 #include <string.h>
 #include <limits.h>
+#include <math.h>
 
 int process_wordsearch_image(const char *image_path,
-                             CreateButtonCallback create_button_callback)
+                             CreateButtonCallback create_button_callback, int *num_rows, int *num_cols,
+                             Rect **cell_bounding_boxes, int *num_cells,
+                             int *crop_offset_x, int *crop_offset_y)
 {
-    if (!image_path)
+    if (!image_path || !num_rows || !num_cols || !cell_bounding_boxes || !num_cells ||
+        !crop_offset_x || !crop_offset_y)
     {
-        fprintf(stderr, "Error: No image path provided\n");
+        fprintf(stderr, "Error: Invalid parameters provided\n");
         return 1;
     }
+
+    // Initialize output parameters
+    *num_rows = 0;
+    *num_cols = 0;
+    *cell_bounding_boxes = NULL;
+    *num_cells = 0;
+    *crop_offset_x = 0;
+    *crop_offset_y = 0;
 
     printf("Processing word search image: %s\n", image_path);
 
@@ -74,7 +87,7 @@ int process_wordsearch_image(const char *image_path,
 
     int use_line_detection = has_proper_grid_lines(&grid_image);
 
-    int num_rows = 0, num_cols = 0;
+    int local_num_rows = 0, local_num_cols = 0;
     int *y_boundaries = NULL;
     int *x_boundaries = NULL;
 
@@ -99,8 +112,8 @@ int process_wordsearch_image(const char *image_path,
 
         if (!extract_cell_boundaries_from_lines(
                 &horizontal_lines, &vertical_lines, grid_image.width,
-                grid_image.height, &y_boundaries, &x_boundaries, &num_rows,
-                &num_cols))
+                grid_image.height, &y_boundaries, &x_boundaries, &local_num_rows,
+                &local_num_cols))
         {
             printf("Failed to extract cell boundaries from lines, falling back "
                    "to letter-based detection\n");
@@ -121,11 +134,10 @@ int process_wordsearch_image(const char *image_path,
         printf(
             "Using letter-based detection for grid without inner contours\n");
 
-        int crop_offset_x = 0, crop_offset_y = 0;
         if (!determine_text_region(
                 &original_image, grid_bounds.x, grid_bounds.y,
                 grid_bounds.width, grid_bounds.height, valid_letters,
-                &text_region, &crop_offset_x, &crop_offset_y))
+                &text_region, crop_offset_x, crop_offset_y))
         {
             fprintf(stderr, "Failed to determine text region\n");
             freeContours(letters_contours);
@@ -136,9 +148,9 @@ int process_wordsearch_image(const char *image_path,
             return 1;
         }
 
-        if (determine_grid_dimensions_from_letters(valid_letters, crop_offset_x,
-                                                   crop_offset_y, &num_rows,
-                                                   &num_cols) != 0)
+        if (determine_grid_dimensions_from_letters(valid_letters, *crop_offset_x,
+                                                   *crop_offset_y, &local_num_rows,
+                                                   &local_num_cols) != 0)
         {
             fprintf(stderr, "Failed to determine grid dimensions\n");
             freeContours(letters_contours);
@@ -150,7 +162,7 @@ int process_wordsearch_image(const char *image_path,
             return 1;
         }
 
-        if (generate_cell_boundaries_from_letters(valid_letters, num_rows, num_cols,
+        if (generate_cell_boundaries_from_letters(valid_letters, local_num_rows, local_num_cols,
                                                   &y_boundaries, &x_boundaries) != 0)
         {
             fprintf(stderr, "Failed to generate cell boundaries\n");
@@ -168,7 +180,7 @@ int process_wordsearch_image(const char *image_path,
         // Extract text region from original image like letter-based detection
         if (!determine_text_region(&original_image, grid_bounds.x, grid_bounds.y,
                                    grid_bounds.width, grid_bounds.height, NULL,
-                                   &text_region, NULL, NULL))
+                                   &text_region, crop_offset_x, crop_offset_y))
         {
             fprintf(stderr, "Failed to determine text region in line detection\n");
             return 1;
@@ -185,14 +197,14 @@ int process_wordsearch_image(const char *image_path,
     Image debug_grid = {0};
     cpy_image(&text_region, &debug_grid);
     gray_to_rgba(&debug_grid);
-    for (int i = 0; i <= num_rows; i++)
+    for (int i = 0; i <= local_num_rows; i++)
     {
         int y = y_boundaries[i];
         draw_rectangle(&debug_grid, 0, y, text_region.width, 1, true, 3,
                        0xFF0000FF);
     }
 
-    for (int i = 0; i <= num_cols; i++)
+    for (int i = 0; i <= local_num_cols; i++)
     {
         int x = x_boundaries[i];
         draw_rectangle(&debug_grid, x, 0, 1, text_region.height, true, 3,
@@ -208,20 +220,58 @@ int process_wordsearch_image(const char *image_path,
 
     free_image(&debug_grid);
 
-    if (extract_cell_images(&text_region, y_boundaries, x_boundaries, num_rows,
-                            num_cols) != 0)
+    if (extract_cell_images(&text_region, y_boundaries, x_boundaries, local_num_rows,
+                            local_num_cols) != 0)
     {
         fprintf(stderr, "Failed to extract cell images\n");
     }
 
-    if (create_reconstructed_grid(num_rows, num_cols, create_button_callback) !=
+    if (create_reconstructed_grid(local_num_rows, local_num_cols, create_button_callback) !=
         0)
     {
         fprintf(stderr, "Failed to create reconstructed grid\n");
     }
 
-    printf("Extracted grid: %d rows x %d columns\n", num_rows, num_cols);
+    printf("Extracted grid: %d rows x %d columns\n", local_num_rows, local_num_cols);
 
+    // Create cell bounding boxes array
+    int total_cells = local_num_rows * local_num_cols;
+    *cell_bounding_boxes = (Rect *)malloc(sizeof(Rect) * total_cells);
+    if (!*cell_bounding_boxes)
+    {
+        fprintf(stderr, "Failed to allocate memory for cell bounding boxes\n");
+        free(y_boundaries);
+        free(x_boundaries);
+        freeContours(letters_contours);
+        freeContours(valid_letters);
+        free_image(&text_region);
+        free_image(&grid_image);
+        free_image(&original_image);
+        free_image(&image);
+        return 1;
+    }
+
+    // Fill in the bounding boxes for each cell (relative to text region)
+    for (int row = 0; row < local_num_rows; row++)
+    {
+        for (int col = 0; col < local_num_cols; col++)
+        {
+            int cell_index = row * local_num_cols + col;
+            (*cell_bounding_boxes)[cell_index].x = x_boundaries[col];
+            (*cell_bounding_boxes)[cell_index].y = y_boundaries[row];
+            (*cell_bounding_boxes)[cell_index].width = x_boundaries[col + 1] - x_boundaries[col];
+            (*cell_bounding_boxes)[cell_index].height = y_boundaries[row + 1] - y_boundaries[row];
+        }
+    }
+
+    // Set output parameters
+    *num_rows = local_num_rows;
+    *num_cols = local_num_cols;
+    *num_cells = total_cells;
+    // Add grid bounds to get absolute offset in original image
+    *crop_offset_x += grid_bounds.x;
+    *crop_offset_y += grid_bounds.y;
+    // Free internal boundary arrays (cell bounding boxes are returned to caller)
     free(y_boundaries);
     free(x_boundaries);
     freeContours(letters_contours);
@@ -234,12 +284,12 @@ int process_wordsearch_image(const char *image_path,
     return 0;
 }
 
-void clear_cells_directory(void)
+void clear_directory(const char *dirname)
 {
-    DIR *dir = opendir("cells");
+    DIR *dir = opendir(dirname);
     if (!dir)
     {
-        printf("Could not open cells directory for clearing\n");
+        printf("Could not open %s directory for clearing\n", dirname);
         return;
     }
 
@@ -254,7 +304,7 @@ void clear_cells_directory(void)
         }
 
         char filepath[512];
-        snprintf(filepath, sizeof(filepath), "cells/%s", entry->d_name);
+        snprintf(filepath, sizeof(filepath), "%s/%s", dirname, entry->d_name);
         if (unlink(filepath) == 0)
         {
             // printf("Removed: %s\n", filepath);
@@ -266,7 +316,7 @@ void clear_cells_directory(void)
     }
 
     closedir(dir);
-    printf("Cells directory cleared (except .gitkeep)\n");
+    printf("%s directory cleared (except .gitkeep)\n", dirname);
 }
 
 int extract_cell_images(const Image *grid_region, const int *y_boundaries,
@@ -277,7 +327,7 @@ int extract_cell_images(const Image *grid_region, const int *y_boundaries,
         return 1;
     }
 
-    clear_cells_directory();
+    clear_directory("cells");
 
     printf("Extracting individual cells for OCR processing...\n");
     for (int row = 0; row < num_rows; row++)
@@ -296,7 +346,6 @@ int extract_cell_images(const Image *grid_region, const int *y_boundaries,
                 Image cell_roi = {0};
                 extract_rectangle(grid_region, x1, y1, cell_width_px,
                                   cell_height_px, &cell_roi);
-
                 char filename[256];
                 sprintf(filename, "cells/cell_%d_%d.png", row, col);
                 save_image(filename, &cell_roi);
@@ -925,10 +974,203 @@ int process_word_detection(const char *image_path,
         free_image(&word_detection_result);
     }
 
+    // Clear the words directory before saving new images
+    clear_directory("words");
+
+    // Extract and save individual word images from the main group
+    for (int i = 0; i < detected_words->count; i++)
+    {
+        BoundingBox box = detected_words->boxes[i];
+
+        // Extract the word region from the original image
+        Image word_image = {0};
+        extract_rectangle(&original_image, box.x, box.y, box.width, box.height, &word_image);
+        char word_filename[256];
+        snprintf(word_filename, sizeof(word_filename), "words/word_%d.png", i + 1);
+        save_image(word_filename, &word_image);
+
+        free_image(&word_image);
+    }
+
+    printf("Saved %d word images to words/ folder\n", detected_words->count);
+
     free_image(&original_image);
     freeBoundingBoxArray(detected_words);
     free(detected_words);
 
     printf("Word detection processing completed\n");
+    return 0;
+}
+
+int draw_solved_words(const char *image_path, WordMatch **word_matches, int num_matches,
+                      int num_rows, int num_cols, const Rect *cell_bounding_boxes,
+                      int text_region_offset_x, int text_region_offset_y, const char *output_path)
+{
+    if (!image_path || !word_matches || !cell_bounding_boxes || !output_path || num_matches <= 0)
+    {
+        fprintf(stderr, "Invalid parameters for draw_solved_words\n");
+        return 1;
+    }
+
+    printf("Drawing solved words on image: %s\n", image_path);
+
+    // Load the original image
+    Image original_image;
+    load_image(image_path, &original_image);
+    if ((!original_image.is_grayscale && !original_image.rgba_pixels) ||
+        (original_image.is_grayscale && !original_image.gray_pixels))
+    {
+        fprintf(stderr, "Failed to load image: %s\n", image_path);
+        return 1;
+    }
+
+    // Convert to RGBA if needed for drawing
+    if (original_image.is_grayscale)
+    {
+        gray_to_rgba(&original_image);
+    }
+
+    printf("Using text region offset: (%d, %d)\n", text_region_offset_x, text_region_offset_y);
+
+    // Define semi-transparent colors for the capsules (30 colors)
+    uint32_t colors[] = {
+        0x40FF0000, // Red
+        0x4000FF00, // Green
+        0x400000FF, // Blue
+        0x40FFFF00, // Yellow
+        0x40FF00FF, // Magenta
+        0x4000FFFF, // Cyan
+        0x40FFA500, // Orange
+        0x40800080, // Purple
+        0x40008080, // Teal
+        0x40808000, // Olive
+        0x40FF4500, // Orange Red
+        0x4000FF7F, // Spring Green
+        0x404B0082, // Indigo
+        0x40FF1493, // Deep Pink
+        0x4000CED1, // Dark Turquoise
+        0x40FF6347, // Tomato
+        0x4032CD32, // Lime Green
+        0x408B008B, // Dark Magenta
+        0x4040E0D0, // Turquoise
+        0x40FF8C00, // Dark Orange
+        0x409ACD32, // Yellow Green
+        0x40800000, // Dark Red
+        0x40000080, // Navy
+        0x40FFD700, // Gold
+        0x40DA70D6, // Orchid
+        0x4020B2AA, // Light Sea Green
+        0x40DC143C, // Crimson
+        0x40008000, // Dark Green
+        0x408B4513, // Saddle Brown
+        0x406B8E23  // Olive Drab
+    };
+    int num_colors = sizeof(colors) / sizeof(colors[0]);
+
+    // Draw each solved word
+    for (int i = 0; i < num_matches; i++)
+    {
+        WordMatch *match = word_matches[i];
+        if (!match)
+            continue;
+
+        // Calculate word length
+        int word_length = strlen(match->word_str);
+
+        // Calculate end position based on direction
+        int end_row = match->start_pos.row;
+        int end_col = match->start_pos.col;
+
+        // Direction deltas and angles
+        double angle = 0.0; // angle in degrees
+        if (strcmp(match->direction, "Right") == 0) {
+            end_col += word_length - 1;
+            angle = 0.0;
+        } else if (strcmp(match->direction, "Left") == 0) {
+            end_col -= word_length - 1;
+            angle = 180.0;
+        } else if (strcmp(match->direction, "Down") == 0) {
+            end_row += word_length - 1;
+            angle = 90.0;
+        } else if (strcmp(match->direction, "Up") == 0) {
+            end_row -= word_length - 1;
+            angle = 270.0;
+        } else if (strcmp(match->direction, "DownRight") == 0) {
+            end_row += word_length - 1;
+            end_col += word_length - 1;
+            angle = 45.0;
+        } else if (strcmp(match->direction, "DownLeft") == 0) {
+            end_row += word_length - 1;
+            end_col -= word_length - 1;
+            angle = 135.0;
+        } else if (strcmp(match->direction, "UpRight") == 0) {
+            end_row -= word_length - 1;
+            end_col += word_length - 1;
+            angle = 315.0;
+        } else if (strcmp(match->direction, "UpLeft") == 0) {
+            end_row -= word_length - 1;
+            end_col -= word_length - 1;
+            angle = 225.0;
+        }
+
+        // Get bounding boxes for start and end cells
+        if (match->start_pos.row < 0 || match->start_pos.row >= num_rows ||
+            match->start_pos.col < 0 || match->start_pos.col >= num_cols ||
+            end_row < 0 || end_row >= num_rows ||
+            end_col < 0 || end_col >= num_cols)
+        {
+            fprintf(stderr, "Word position out of bounds for word: %s\n", match->word_str);
+            continue;
+        }
+
+        Rect start_cell = cell_bounding_boxes[match->start_pos.row * num_cols + match->start_pos.col];
+        Rect end_cell = cell_bounding_boxes[end_row * num_cols + end_col];
+
+        // Apply offset to get coordinates in original image
+        start_cell.x += text_region_offset_x;
+        start_cell.y += text_region_offset_y;
+        end_cell.x += text_region_offset_x;
+        end_cell.y += text_region_offset_y;
+
+        // Calculate the center points of start and end cells
+        int start_center_x = start_cell.x + start_cell.width / 2;
+        int start_center_y = start_cell.y + start_cell.height / 2;
+        int end_center_x = end_cell.x + end_cell.width / 2;
+        int end_center_y = end_cell.y + end_cell.height / 2;
+
+        // Calculate the length and width of the capsule
+        double dx = end_center_x - start_center_x;
+        double dy = end_center_y - start_center_y;
+        double distance = sqrt(dx * dx + dy * dy);
+
+        // Capsule dimensions: smaller overall size
+        int capsule_length = (int)(distance + start_cell.width * 0.8); // Smaller circular ends
+        int capsule_width = start_cell.height + 4; // Narrower body
+
+        // Calculate capsule center
+        int capsule_center_x = (start_center_x + end_center_x) / 2;
+        int capsule_center_y = (start_center_y + end_center_y) / 2;
+
+        // Choose color based on word index
+        uint32_t color = colors[i % num_colors];
+
+        // Draw the angled capsule with appropriately sized rounded ends
+        int capsule_radius = capsule_width / 2; // Standard radius for circular ends
+        draw_angled_capsule(&original_image, capsule_center_x, capsule_center_y,
+                           capsule_length, capsule_width, angle, capsule_radius, color);
+
+        printf("Drew angled capsule for word '%s' at (%d,%d) to (%d,%d), direction: %s, angle: %.1f\n",
+               match->word_str, match->start_pos.row, match->start_pos.col, end_row, end_col,
+               match->direction, angle);
+    }
+
+    // Save the annotated image
+    save_image(output_path, &original_image);
+
+    printf("Saved annotated image with %d solved words to: %s\n", num_matches, output_path);
+
+    // Cleanup
+    free_image(&original_image);
+
     return 0;
 }

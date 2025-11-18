@@ -556,7 +556,213 @@ void draw_bounding_boxes(Image *image, const BoundingBoxArray *boxes,
 }
 
 /*
-    Returns the detected word bounding boxes
+    Resize a grayscale image to fit within target dimensions while maintaining aspect ratio.
+    The image will be centered in the target frame with padding if needed.
+*/
+void resize_letter_maintaining_aspect_ratio(Image *src, Image *dst, int target_width, int target_height)
+{
+    if (!src || !dst || !src->is_grayscale || !src->gray_pixels)
+    {
+        fprintf(stderr, "Error: Invalid source image for letter resizing\n");
+        return;
+    }
+
+    dst->width = target_width;
+    dst->height = target_height;
+    dst->is_grayscale = true;
+    dst->rgba_pixels = NULL;
+    dst->gray_pixels = (uint8_t*)malloc(target_width * target_height * sizeof(uint8_t));
+
+    if (!dst->gray_pixels)
+    {
+        fprintf(stderr, "Error: Failed to allocate memory for resized letter image\n");
+        return;
+    }
+
+    // Initialize with white background (255)
+    memset(dst->gray_pixels, 255, target_width * target_height * sizeof(uint8_t));
+
+    // Calculate scaling factor to maintain aspect ratio
+    float scale_x = (float)target_width / src->width;
+    float scale_y = (float)target_height / src->height;
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;
+
+    // Calculate new dimensions
+    int new_width = (int)(src->width * scale);
+    int new_height = (int)(src->height * scale);
+
+    // Center the letter in the target frame
+    int offset_x = (target_width - new_width) / 2;
+    int offset_y = (target_height - new_height) / 2;
+
+    // Resize the source image to the new dimensions
+    for (int y = 0; y < new_height; y++)
+    {
+        for (int x = 0; x < new_width; x++)
+        {
+            // Bilinear interpolation
+            float src_x = x / scale;
+            float src_y = y / scale;
+
+            int x1 = (int)floorf(src_x);
+            int y1 = (int)floorf(src_y);
+            int x2 = (int)ceilf(src_x);
+            int y2 = (int)ceilf(src_y);
+
+            x1 = x1 < 0 ? 0 : (x1 >= src->width ? src->width - 1 : x1);
+            x2 = x2 < 0 ? 0 : (x2 >= src->width ? src->width - 1 : x2);
+            y1 = y1 < 0 ? 0 : (y1 >= src->height ? src->height - 1 : y1);
+            y2 = y2 < 0 ? 0 : (y2 >= src->height ? src->height - 1 : y2);
+
+            uint8_t p11 = src->gray_pixels[y1 * src->width + x1];
+            uint8_t p12 = src->gray_pixels[y1 * src->width + x2];
+            uint8_t p21 = src->gray_pixels[y2 * src->width + x1];
+            uint8_t p22 = src->gray_pixels[y2 * src->width + x2];
+
+            float dx = src_x - x1;
+            float dy = src_y - y1;
+
+            float interpolated = p11 * (1 - dx) * (1 - dy) +
+                               p12 * dx * (1 - dy) +
+                               p21 * (1 - dx) * dy +
+                               p22 * dx * dy;
+
+            dst->gray_pixels[(offset_y + y) * target_width + (offset_x + x)] = (uint8_t)roundf(interpolated);
+        }
+    }
+}
+
+/*
+    Extract individual letters from a word image and return them as a tensor of 28x28 images.
+    Each letter maintains its aspect ratio without stretching.
+    Uses a simple contour-based approach similar to the provided Python algorithm.
+*/
+Tensor *extract_word_letters(const Image *word_image)
+{
+    if (!word_image || !word_image->gray_pixels)
+    {
+        fprintf(stderr, "Error: Invalid word image for letter extraction\n");
+        return NULL;
+    }
+
+    // Create a working copy of the image
+    Image processed_image;
+    cpy_image(word_image, &processed_image);
+
+    // Ensure it's grayscale
+    if (!processed_image.is_grayscale)
+    {
+        convert_to_grayscale(&processed_image);
+    }
+
+    // Apply binary thresholding with THRESH_BINARY_INV | THRESH_OTSU
+    // First apply THRESH_BINARY, then invert for THRESH_BINARY_INV
+    threshold(&processed_image, 255);
+    invert(&processed_image);
+
+    // Find external contours
+    Contours *contours = findContours(&processed_image, 0); // RETR_EXTERNAL
+    if (!contours)
+    {
+        free_image(&processed_image);
+        return NULL;
+    }
+
+    // Filter and store bounding boxes
+    int letter_count = 0;
+    Rect *letter_rects = NULL;
+
+    for (int i = 0; i < contours->count; i++)
+    {
+        Rect bounding_rect;
+        if (!boundingRect(&contours->contours[i], &bounding_rect))
+        {
+            continue;
+        }
+
+        // Filter criteria: remove tiny noise contours (w > 5 and h > 10)
+        if (bounding_rect.width > 2 && bounding_rect.height > 10)
+        {
+            letter_rects = realloc(letter_rects, (letter_count + 1) * sizeof(Rect));
+            if (!letter_rects)
+            {
+                freeContours(contours);
+                free_image(&processed_image);
+                return NULL;
+            }
+            letter_rects[letter_count++] = bounding_rect;
+        }
+    }
+
+    freeContours(contours);
+    printf("Found %d letters\n", letter_count);
+    if (letter_count == 0)
+    {
+        free_image(&processed_image);
+        return NULL;
+    }
+
+    // Sort letters by x-coordinate (left to right)
+    for (int i = 0; i < letter_count - 1; i++)
+    {
+        for (int j = 0; j < letter_count - i - 1; j++)
+        {
+            if (letter_rects[j].x > letter_rects[j + 1].x)
+            {
+                Rect temp = letter_rects[j];
+                letter_rects[j] = letter_rects[j + 1];
+                letter_rects[j + 1] = temp;
+            }
+        }
+    }
+
+    // Create tensor for letters: shape [letter_count, 28, 28]
+    int tensor_shape[3] = {letter_count, 28, 28};
+    Tensor *letters_tensor = tensor_create(tensor_shape, 3);
+    if (!letters_tensor)
+    {
+        free(letter_rects);
+        free_image(&processed_image);
+        return NULL;
+    }
+
+    // Extract and resize each letter
+    for (int i = 0; i < letter_count; i++)
+    {
+        Rect letter_rect = letter_rects[i];
+
+        // Extract the letter region from the original grayscale image
+        Image letter_image;
+        extract_rectangle(word_image, letter_rect.x, letter_rect.y,
+                         letter_rect.width, letter_rect.height, &letter_image);
+        // Resize maintaining aspect ratio
+        Image resized_letter;
+        resize_letter_maintaining_aspect_ratio(&letter_image, &resized_letter, 28, 28);
+
+        // Convert to tensor values (normalize to [0,1])
+        for (int y = 0; y < 28; y++)
+        {
+            for (int x = 0; x < 28; x++)
+            {
+                float pixel_value = resized_letter.gray_pixels[y * 28 + x] / 255.0f;
+                // Store in tensor: [letter_index, y, x]
+                letters_tensor->data[i * 28 * 28 + y * 28 + x] = pixel_value;
+            }
+        }
+
+        free_image(&letter_image);
+        free_image(&resized_letter);
+    }
+
+    free(letter_rects);
+    free_image(&processed_image);
+
+    return letters_tensor;
+}
+
+/*
+    Extract word regions from an image using simple contour-based approach
+    Similar to the Python algorithm provided by the user
 */
 BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
 {

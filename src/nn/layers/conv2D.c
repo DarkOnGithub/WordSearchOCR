@@ -1,9 +1,9 @@
 #include "nn/layers/conv2D.h"
 #include "nn/core/tensor.h"
+#include "nn/core/init.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
 #include <time.h>
 #include <immintrin.h>  // AVX/AVX2 intrinsics
 #ifdef _OPENMP
@@ -266,14 +266,6 @@ static inline void conv_single_channel_simd(
 }
 
 
-// He initialization for weights (better for ReLU)
-static void he_init(float* weights, int count, int fan_in) {
-    float scale = sqrtf(2.0f / fan_in);
-
-    for (int i = 0; i < count; ++i) {
-        weights[i] = ((float)rand() / (float)RAND_MAX - 0.5f) * 2.0f * scale;
-    }
-}
 
 Conv2D* conv2D_create(int input_channels, int output_channels, int kernel_size,
                       int stride, int padding) {
@@ -319,10 +311,8 @@ Conv2D* conv2D_create(int input_channels, int output_channels, int kernel_size,
         return NULL;
     }
 
-    // Initialize weights using He initialization (good for ReLU activations)
-    const int fan_in = input_channels * kernel_size * kernel_size;
-    const int weight_count = output_channels * fan_in;
-    he_init(conv->weight->data, weight_count, fan_in);
+    // Initialize weights using Xavier uniform initialization
+    init_xavier_uniform(conv->weight);
 
     // Initialize bias to zeros
     memset(conv->bias->data, 0, conv->bias->size * sizeof(float));
@@ -778,19 +768,19 @@ static inline void compute_input_grad_3x3(float* __restrict grad_input, const fl
                         int iw0 = iw_center - 1, iw1 = iw_center, iw2 = iw_center + 1;
 
                         if (ih0 >= 0) {
-                            if (iw0 >= 0) gi_base[ih0 * input_width + iw0] += wbase[0] * go;
-                            gi_base[ih0 * input_width + iw1] += wbase[1] * go;
-                            if (iw2 < input_width) gi_base[ih0 * input_width + iw2] += wbase[2] * go;
+                            if (iw0 >= 0) gi_base[ih0 * input_width + iw0] += wbase[8] * go;
+                            gi_base[ih0 * input_width + iw1] += wbase[7] * go;
+                            if (iw2 < input_width) gi_base[ih0 * input_width + iw2] += wbase[6] * go;
                         }
                         {
-                            if (iw0 >= 0) gi_base[ih1 * input_width + iw0] += wbase[3] * go;
+                            if (iw0 >= 0) gi_base[ih1 * input_width + iw0] += wbase[5] * go;
                             gi_base[ih1 * input_width + iw1] += wbase[4] * go;
-                            if (iw2 < input_width) gi_base[ih1 * input_width + iw2] += wbase[5] * go;
+                            if (iw2 < input_width) gi_base[ih1 * input_width + iw2] += wbase[3] * go;
                         }
                         if (ih2 < input_height) {
-                            if (iw0 >= 0) gi_base[ih2 * input_width + iw0] += wbase[6] * go;
-                            gi_base[ih2 * input_width + iw1] += wbase[7] * go;
-                            if (iw2 < input_width) gi_base[ih2 * input_width + iw2] += wbase[8] * go;
+                            if (iw0 >= 0) gi_base[ih2 * input_width + iw0] += wbase[2] * go;
+                            gi_base[ih2 * input_width + iw1] += wbase[1] * go;
+                            if (iw2 < input_width) gi_base[ih2 * input_width + iw2] += wbase[0] * go;
                         }
                     }
                 }

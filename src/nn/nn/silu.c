@@ -5,10 +5,10 @@
 #include <stdio.h>
 #include <string.h>
 
-// Vectorized exponential function for AVX2
 static inline __m256 exp256_ps(__m256 x) {
     // Temporary stable implementation using scalar expf for correctness
     // TODO: Replace with optimized vectorized exp implementation (e.g., Intel SVML)
+    // For some unknown reason, the SIMD part isn't working correctly
     float buffer[8];
     _mm256_storeu_ps(buffer, x);
     for (int i = 0; i < 8; ++i) {
@@ -40,7 +40,6 @@ static inline void silu_simd(float* output, const float* input, size_t size) {
         _mm256_storeu_ps(&output[i], result_vec);
     }
 
-    // Handle remaining elements
     for (; i < size; ++i) {
         float x = input[i];
         float sigmoid_x = 1.0f / (1.0f + expf(-x));
@@ -78,13 +77,11 @@ static inline void silu_grad_simd(float* output, const float* input, const float
         // Compute gradient = sigmoid(x) + x * sigmoid'(x)
         __m256 gradient_vec = _mm256_add_ps(sigmoid_vec, x_times_sigmoid_derivative_vec);
 
-        // Multiply by upstream gradient
         __m256 result_vec = _mm256_mul_ps(gradient_vec, grad_vec);
 
         _mm256_storeu_ps(&output[i], result_vec);
     }
 
-    // Handle remaining elements
     for (; i < size; ++i) {
         float x = input[i];
         float sigmoid_x = 1.0f / (1.0f + expf(-x));

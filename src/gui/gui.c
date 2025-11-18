@@ -654,8 +654,15 @@ static void process_image(const gchar *image_path)
     int result;
     if (current_processing_mode == 0)
     {
-        result =
-            process_wordsearch_image(image_path, create_processing_step_button);
+        int num_rows, num_cols, num_cells;
+        int crop_offset_x, crop_offset_y;
+        Rect *cell_bounding_boxes;
+        result = process_wordsearch_image(image_path, create_processing_step_button,
+                                        &num_rows, &num_cols, &cell_bounding_boxes, &num_cells,
+                                        &crop_offset_x, &crop_offset_y);
+        // Store cell bounding boxes for potential use in GUI
+        // Free the returned cell bounding boxes if needed
+        if (cell_bounding_boxes) free(cell_bounding_boxes);
     }
     else
     {
@@ -735,9 +742,15 @@ static void process_both_modes(const gchar *image_path)
         gtk_main_iteration();
     }
 
-    grid_result =
-        process_wordsearch_image(image_path, create_processing_step_button);
-    printf("Grid Detection completed with result: %d\n", grid_result);
+    int grid_num_rows, grid_num_cols, grid_num_cells;
+    int grid_crop_offset_x, grid_crop_offset_y;
+    Rect *grid_cell_bounding_boxes;
+    grid_result = process_wordsearch_image(image_path, create_processing_step_button,
+                                         &grid_num_rows, &grid_num_cols, &grid_cell_bounding_boxes, &grid_num_cells,
+                                         &grid_crop_offset_x, &grid_crop_offset_y);
+    printf("Grid Detection completed with result: %d (%d x %d grid, %d cells)\n", grid_result, grid_num_rows, grid_num_cols, grid_num_cells);
+    // Free the returned cell bounding boxes
+    if (grid_cell_bounding_boxes) free(grid_cell_bounding_boxes);
 
     current_processing_mode = 1;
 

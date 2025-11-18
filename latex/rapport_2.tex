@@ -1,22 +1,6 @@
 \documentclass{article}
-\usepackage{graphicx}
-\usepackage{xcolor}
-\usepackage{array}
-\usepackage[T1]{fontenc}
-\usepackage{bbding}
-\usepackage{amsfonts}
-\usepackage{amsmath}
-\usepackage{pgfgantt}
-\usepackage[margin=2cm]{geometry}
-\usepackage[hidelinks]{hyperref}
-\usepackage{subcaption}
-\usepackage{float}
-\usepackage{verbatim}
-\usepackage{setspace}
-\usepackage{titling}
 \usepackage[utf8]{inputenc}
 \usepackage{amsmath}
-\usepackage{geometry}
 \usepackage{xcolor}
 \usepackage[most]{tcolorbox}
 \usepackage{array}
@@ -25,13 +9,15 @@
 \usepackage{amsfonts}
 \usepackage{amsmath}
 \usepackage{pgfgantt}
-\usepackage[margin=2cm]{geometry}
+\usepackage[margin=3cm]{geometry}  % Change 3cm to your desired size
 \usepackage[hidelinks]{hyperref}
 \usepackage{subcaption}
 \usepackage{float}
 \usepackage{verbatim}
 \usepackage{setspace}
 \usepackage{titling}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 \newcommand\Tstrut{\rule{0pt}{2.6ex}}
 \newcommand\Bstrut{\rule[-0.9ex]{0pt}{0pt}}
 \newcommand{\TBstrut}{\Tstrut\Bstrut}
@@ -84,82 +70,28 @@ OCR Word Search Solver\\[0.5em]
     \end{tabular}
 }
 
-
 \date{4 novembre 2025}
 
 \begin{document}
-
 \maketitle
 
 \begin{spacing}{0.9}
+\newpage
 \tableofcontents
 \end{spacing}
+\newpage
+\input{sections/neural_network_intro}
+\input{sections/tensor_representation}
+\newpage
+\input{sections/network_layers}
+\newpage
+\input{sections/architecture_explanation}
+\newpage
+\input{sections/optimizer_section}
+\newpage
+\input{sections/training_section}
+\newpage
+\input{sections/solver_section}
 
-
-\section{Réseau de neurone pour la reconnaissance de caractères}
-
-Pour la reconnaissance de caractères, nous utiliserons un réseau de neurones convolutif (CNN).\\
-Un CNN est un type de réseau de neurones spécialement conçu pour le traitement d'images. Sa structure s'inspire du cortex visuel animal. Il utilise des couches de convolution pour extraire des caractéristiques hiérarchiques des images, comme les contours, les formes, puis des objets plus complexes. Ces couches sont suivies de couches de pooling, qui réduisent la taille des données pour en conserver les informations essentielles. Finalement, des couches entièrement connectées, similaires à celles d'un réseau de neurones classique, effectuent la classification finale pour identifier le caractère. Cette architecture rend les CNN particulièrement performants pour la reconnaissance de motifs dans les images.
-\newline\newline
-\mynote{\small\textit{Pour accélérer les calculs intensifs de notre réseau de neurones, nous exploitons les instructions SIMD (Single Instruction, Multiple Data). Le principe du SIMD est d'effectuer une seule opération sur plusieurs données simultanément. Les processeurs modernes disposent de registres spéciaux pouvant contenir des vecteurs de données (par exemple, 8 nombres flottants). Une seule instruction SIMD peut alors additionner ou multiplier tous ces nombres en un seul cycle d'horloge. L'utilisation de ces instructions, notamment via les intrinsèques AVX2, permet de paralléliser les calculs au plus bas niveau et d'obtenir des gains de performance considérables.}}
-
-\subsection{Représentation des données en tenseur}
-
-Au cœur de notre réseau de neurones se trouve le \textbf{tenseur}, une structure de données fondamentale. On peut le voir comme une généralisation des vecteurs (1 dimension) et des matrices (2 dimensions) à un nombre arbitraire de dimensions. Dans notre projet, toutes les données — qu'il s'agisse des images d'entrée, des poids des couches ou des résultats intermédiaires — sont unifiées sous cette forme.
-
-\subsubsection{Représentation en Mémoire et Performance}
-
-L'efficacité de la manipulation des tenseurs repose sur une meilleure représentation en mémoire. Plutôt que d'utiliser des structures de données imbriquées, un tenseur stocke toutes ses valeurs dans un \textbf{bloc de mémoire contigu}, c'est-à-dire un simple tableau unidimensionnel.
-
-La structure multidimensionnelle devient alors une abstraction. Elle est définie par des méta-informations, dont la plus importante est sa \textbf{forme}. La forme décrit la taille de chaque dimension et permet d'interpréter le tableau de données brutes comme une grille multidimensionnelle. Par exemple, un tenseur de forme \texttt{(28, 28)} contient 784 éléments stockés séquentiellement, que sa forme nous permet de reconstituer en une grille de 28x28.
-
-Cette organisation est cruciale pour les performances. Elle garantit une localité des données qui optimise l'utilisation de la mémoire cache du processeur et permet une meilleur utilisation des instructions \textbf{SIMD}.
-
-\section{Architecture du Réseau de Neurones}
-Le modèle de réseau de neurones convolutif (CNN) que nous avons conçu est structuré en plusieurs blocs, chacun ayant un rôle spécifique dans l'extraction des caractéristiques des images de lettres manuscrites. L'architecture est la suivante, et chaque composant sera détaillé dans les sections à venir :
-
-\begin{itemize}
-    \item \textbf{Bloc convolutif 1}
-    \begin{itemize}
-        \item Une couche de convolution 2D avec 32 filtres de taille 3x3, une stride de 1 et un padding de 1. L'entrée est une image monocanal (1 canal).
-        \item Une fonction d'activation ReLU.
-        \item Une couche de convolution 2D avec 64 filtres de taille 1x1, une stride de 1 et aucun padding.
-        \item Une fonction d'activation ReLU.
-        \item Une couche de Max Pooling 2D de taille 2x2.
-        \item Une couche de Dropout 2D avec un taux de 0.20.
-    \end{itemize}
-
-    \item \textbf{Bloc convolutif 2}
-    \begin{itemize}
-        \item Une couche de convolution 2D avec 64 filtres de taille 3x3, une stride de 1 et un padding de 1.
-        \item Une fonction d'activation ReLU.
-        \item Une couche de convolution 2D avec 128 filtres de taille 1x1, une stride de 1 et aucun padding.
-        \item Une fonction d'activation ReLU.
-        \item Une couche de Max Pooling 2D de taille 2x2.
-        \item Une couche de Dropout 2D avec un taux de 0.20.
-    \end{itemize}
-
-    \item \textbf{Bloc convolutif 3}
-    \begin{itemize}
-        \item Une couche de convolution 2D avec 128 filtres de taille 3x3, une stride de 1 et un padding de 1.
-        \item Une fonction d'activation ReLU.
-        \item Une couche de convolution 2D avec 256 filtres de taille 1x1, une stride de 1 et aucun padding.
-        \item Une fonction d'activation ReLU.
-        \item Une couche de Max Pooling 2D de taille 2x2.
-        \item Une couche de Dropout 2D avec un taux de 0.20.
-    \end{itemize}
-    \item \textbf{Couches de classification}
-  \begin{itemize}
-      \item Aplatissage (Flattening) des cartes de caractéristiques. Pour une image d'entrée de 28x28, la taille après les 3 blocs est de 256x3x3 = 2304.
-      \item Une couche entièrement connectée (Dense) avec 128 neurones.
-      \item Une fonction d'activation ReLU.
-      \item Une couche de Dropout avec un taux de 0.45.
-      \item Une couche de sortie entièrement connectée avec 26 neurones, correspondant aux 26 lettres de l'alphabet.
-  \end{itemize}
-\end{itemize}
-
-La fonction de perte utilisée est l'entropie croisée (Cross-Entropy Loss), adaptée pour les problèmes de classification multiclasse.
-
-\subsection{Couche linéaire}
 
 \end{document}

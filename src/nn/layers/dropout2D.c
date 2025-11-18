@@ -1,4 +1,4 @@
-#include "nn/layers/dropout2d.h"
+#include "nn/layers/dropout2D.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>

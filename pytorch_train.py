@@ -171,29 +171,29 @@ def train_model():
 
     # Loss and optimizer (matching C implementation)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)  # Default Adam settingsc
+    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.0001)  # Default Adam settingsc
 
     # Load datasets
     print("\nLoading datasets...")
     train_dataset = LetterDataset(
-        'data/font_letter_dataset_enhanced/font_letters_train_images.npy',
-        'data/font_letter_dataset_enhanced/font_letters_train_labels.npy'
+        'data/font_letters_train_images.npy',
+        'data/font_letters_train_labels.npy'
     )
     test_dataset = LetterDataset(
-        'data/font_letter_dataset_enhanced/font_letters_test_images.npy',
-        'data/font_letter_dataset_enhanced/font_letters_test_labels.npy'
+        'data/font_letters_test_images.npy',
+        'data/font_letters_test_labels.npy'
     )
 
     # Create data loaders
     batch_size = 64  # Matching C implementation
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     print(f"Train batches: {len(train_loader)}")
     print(f"Test batches: {len(test_loader)}")
 
     # Training parameters
-    num_epochs = 15
+    num_epochs = 5
     best_accuracy = 0.0
 
     # Training history
@@ -206,6 +206,8 @@ def train_model():
 
     for epoch in range(num_epochs):
         print(f"\nEpoch {epoch+1}/{num_epochs}")
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"Learning rate: {current_lr}")
 
         # Training phase
         model.train()

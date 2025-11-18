@@ -1,0 +1,12 @@
+\subsection{Représentation des données sous forme de tenseurs}
+
+Le \textbf{tenseur} est la structure de données fondamentale au cœur de notre réseau de neurones. Il s'agit d'une généralisation des vecteurs (tableaux à une dimension) et des matrices (tableaux à deux dimensions) à un nombre arbitraire de dimensions. Dans le cadre de ce projet, toutes les données manipulées, qu'il s'agisse des images d'entrée, des poids des couches ou des résultats intermédiaires, sont représentées sous forme de tenseurs.
+
+\subsubsection{Représentation en Mémoire et Performance}
+
+L'efficacité de la manipulation des tenseurs est intrinsèquement liée à leur représentation en mémoire. Au lieu de recourir à des structures de données imbriquées (comme des tableaux de tableaux), un tenseur stocke l'ensemble de ses valeurs dans un \textbf{bloc de mémoire contigu}, qui s'apparente à un simple tableau unidimensionnel.
+
+La structure multidimensionnelle est donc une abstraction logicielle, définie par des méta-informations qui décrivent comment interpréter ce bloc de données. La plus importante de ces méta-informations est la \textbf{forme} (\textit{shape}) du tenseur. La forme spécifie la taille de chaque dimension, permettant de projeter le tableau de données brutes en une grille multidimensionnelle. Par exemple, un tenseur de forme \texttt{(28, 28)}, représentant une image de 28x28 pixels, contiendra 784 éléments stockés séquentiellement en mémoire.
+
+Cette organisation est déterminante pour les performances. Le stockage contigu des données garantit une excellente \textbf{localité spatiale}, ce qui signifie que les données accédées séquentiellement sont physiquement proches en mémoire. Cette propriété est exploitée par la mémoire cache du processeur pour réduire les temps de latence. De plus, cette disposition linéaire des données est idéale pour le traitement vectoriel, permettant d'exploiter efficacement les instructions \textbf{SIMD} des processeurs modernes pour paralléliser les calculs.
+

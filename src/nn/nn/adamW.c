@@ -48,11 +48,9 @@ int adam_add_param(Adam* optimizer, Tensor* param, Tensor* grad) {
         optimizer->capacity = new_capacity;
     }
 
-    // Initialize the parameter state
     optimizer->param_states[optimizer->num_params].param = param;
     optimizer->param_states[optimizer->num_params].grad = grad;
 
-    // Create moment tensors initialized to zero
     optimizer->param_states[optimizer->num_params].m = tensor_create_zero(
         param->shape, param->ndim);
     optimizer->param_states[optimizer->num_params].v = tensor_create_zero(
@@ -78,8 +76,6 @@ void adam_step(Adam* optimizer) {
 
     float beta1_t = powf(optimizer->beta1, optimizer->t);
     float beta2_t = powf(optimizer->beta2, optimizer->t);
-    float alpha_t = optimizer->learning_rate *
-                   sqrtf(1.0f - beta2_t) / (1.0f - beta1_t);
 
     for (int i = 0; i < optimizer->num_params; i++) {
         AdamParamState* state = &optimizer->param_states[i];
@@ -90,46 +86,19 @@ void adam_step(Adam* optimizer) {
 
         if (!param || !grad || !m || !v) continue;
 
-        // Apply weight decay: effective_grad = grad + weight_decay * param
-        Tensor* effective_grad = grad;
-        Tensor* weight_decay_term = NULL;
-
-        if (optimizer->weight_decay > 0.0f) {
-            weight_decay_term = tensor_multiply_scalar_copy(param, optimizer->weight_decay);
-            if (weight_decay_term) {
-                effective_grad = tensor_add(grad, weight_decay_term);
-                tensor_free(weight_decay_term);
-                if (!effective_grad) continue;
-            }
-        }
 
         // Update m: m = beta1 * m + (1 - beta1) * effective_grad
-        Tensor* m_beta1 = tensor_multiply_scalar_copy(m, optimizer->beta1);
-        Tensor* grad_scaled = tensor_multiply_scalar_copy(effective_grad, 1.0f - optimizer->beta1);
-        Tensor* new_m = tensor_add(m_beta1, grad_scaled);
-        tensor_free(m_beta1);
+        tensor_scale_inplace(m, optimizer->beta1);
+        Tensor* grad_scaled = tensor_multiply_scalar_copy(grad, 1.0f - optimizer->beta1);
+        tensor_add_inplace(m, grad_scaled);
         tensor_free(grad_scaled);
 
-        if (new_m) {
-            tensor_free(m);
-            m = new_m;
-            state->m = m;
-        }
-
         // Update v: v = beta2 * v + (1 - beta2) * effective_grad^2
-        Tensor* v_beta2 = tensor_multiply_scalar_copy(v, optimizer->beta2);
-        Tensor* grad_squared = tensor_square(effective_grad);
-        Tensor* grad_squared_scaled = tensor_multiply_scalar_copy(grad_squared, 1.0f - optimizer->beta2);
-        Tensor* new_v = tensor_add(v_beta2, grad_squared_scaled);
-        tensor_free(v_beta2);
+        tensor_scale_inplace(v, optimizer->beta2);
+        Tensor* grad_squared = tensor_square(grad);
+        tensor_scale_inplace(grad_squared, 1.0f - optimizer->beta2);
+        tensor_add_inplace(v, grad_squared);
         tensor_free(grad_squared);
-        tensor_free(grad_squared_scaled);
-
-        if (new_v) {
-            tensor_free(v);
-            v = new_v;
-            state->v = v;
-        }
 
         // Compute bias-corrected moments: m̂ = m / (1 - beta1^t), v̂ = v / (1 - beta2^t)
         Tensor* m_hat = tensor_multiply_scalar_copy(m, 1.0f / (1.0f - beta1_t));
@@ -141,17 +110,18 @@ void adam_step(Adam* optimizer) {
             Tensor* v_sqrt_eps = tensor_add_scalar_copy(v_sqrt, optimizer->epsilon);
 
             if (v_sqrt_eps) {
-                // Compute update: alpha_t * m̂ / (sqrt(v̂) + epsilon)
-                // First compute m̂ / (sqrt(v̂) + epsilon), then scale by alpha_t
+                //Apply decoupled weight decay directly to parameters
+                if (optimizer->weight_decay > 0.0f) {
+                    tensor_scale_inplace(param, 1.0f - optimizer->learning_rate * optimizer->weight_decay);
+                }
+
+                // Compute update: learning_rate * m̂ / (sqrt(v̂) + epsilon)
+                // First compute m̂ / (sqrt(v̂) + epsilon), then scale by learning_rate
                 Tensor* ratio = tensor_divide(m_hat, v_sqrt_eps);
-                tensor_scale_inplace(ratio, alpha_t);
+                tensor_scale_inplace(ratio, optimizer->learning_rate);
 
                 // Update parameter: param = param - update
-                Tensor* new_param = tensor_subtract(param, ratio);
-                if (new_param) {
-                    memcpy(param->data, new_param->data, param->size * sizeof(float));
-                    tensor_free(new_param);
-                }
+                tensor_subtract_inplace(param, ratio);
 
                 tensor_free(ratio);
                 tensor_free(v_sqrt_eps);
@@ -163,9 +133,6 @@ void adam_step(Adam* optimizer) {
 
         tensor_free(m_hat);
 
-        if (effective_grad != grad) {
-            tensor_free(effective_grad);
-        }
     }
 }
 
@@ -191,3 +158,24 @@ void adam_set_learning_rate(Adam* optimizer, float lr) {
 int adam_get_num_params(Adam* optimizer) {
     return optimizer ? optimizer->num_params : 0;
 }
+
+float adam_get_beta1(Adam* optimizer) {
+    return optimizer ? optimizer->beta1 : 0.0f;
+}
+
+float adam_get_beta2(Adam* optimizer) {
+    return optimizer ? optimizer->beta2 : 0.0f;
+}
+
+float adam_get_epsilon(Adam* optimizer) {
+    return optimizer ? optimizer->epsilon : 0.0f;
+}
+
+float adam_get_weight_decay(Adam* optimizer) {
+    return optimizer ? optimizer->weight_decay : 0.0f;
+}
+
+int adam_get_t(Adam* optimizer) {
+    return optimizer ? optimizer->t : 0;
+}
+

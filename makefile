@@ -16,7 +16,7 @@ TRAIN_LDFLAGS = -O3 -flto -lm -fopenmp $(GTK_LIBS)
 PROFILE_CFLAGS = -pg -g -O2 -mavx2 -mfma -Iinclude
 PROFILE_LDFLAGS = -pg -lm
 
-MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*XNOR.c" -not -path "*/solver/main.c" -not -path "*/nn/train.c" -not -path "*/nn/inference.c")
+MAIN_SOURCES = $(shell find $(SRC_DIR) -name "*.c" -type f -not -name "*XNOR.c" -not -path "*/solver/main.c" -not -path "*/nn/train.c" -not -path "*/nn/inference_old.c")
 MAIN_OBJECTS = $(MAIN_SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 DEPS = $(MAIN_OBJECTS:.o=.d)
 

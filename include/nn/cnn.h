@@ -27,7 +27,9 @@ typedef struct {
     Tensor* conv1_1x1_out;
     BatchNorm2DOutput* bn1_1x1_result;
     Tensor* shortcut1_out;
+    BatchNorm2DOutput* bn_shortcut1_result;
     Tensor* residual1_out;
+    Tensor* residual1_sum;    // Store for backward pass
     Tensor* silu1_residual;
     MaxPool2DOutput* pool1_result;
     Tensor* pool1_out;
@@ -41,7 +43,9 @@ typedef struct {
     Tensor* conv2_1x1_out;
     BatchNorm2DOutput* bn2_1x1_result;
     Tensor* shortcut2_out;
+    BatchNorm2DOutput* bn_shortcut2_result;
     Tensor* residual2_out;
+    Tensor* residual2_sum;    // Store for backward pass
     Tensor* silu2_residual;
     MaxPool2DOutput* pool2_result;
     Tensor* pool2_out;
@@ -55,7 +59,9 @@ typedef struct {
     Tensor* conv3_1x1_out;
     BatchNorm2DOutput* bn3_1x1_result;
     Tensor* shortcut3_out;
+    BatchNorm2DOutput* bn_shortcut3_result;
     Tensor* residual3_out;
+    Tensor* residual3_sum;    // Store for backward pass
     Tensor* silu3_residual;
     AdaptiveAvgPool2DOutput* gap_result;
     Tensor* gap_out;
@@ -79,6 +85,7 @@ struct CNN {
     Conv2D* conv1_1x1;      // 32->64, 1x1
     BatchNorm2D* bn1_1x1;   // Batch norm after conv1_1x1
     Conv2D* shortcut1;      // 1->64, 1x1 shortcut
+    BatchNorm2D* bn_shortcut1; // Batch norm for shortcut1 (matches PyTorch)
 
     // Convolutional layers - Block 2 (3x3 -> 1x1)
     Conv2D* conv2_3x3;      // 64->64, 3x3
@@ -86,6 +93,7 @@ struct CNN {
     Conv2D* conv2_1x1;      // 64->128, 1x1
     BatchNorm2D* bn2_1x1;   // Batch norm after conv2_1x1
     Conv2D* shortcut2;      // 64->128, 1x1 shortcut
+    BatchNorm2D* bn_shortcut2; // Batch norm for shortcut2 (matches PyTorch)
 
     // Convolutional layers - Block 3 (3x3 -> 1x1)
     Conv2D* conv3_3x3;      // 128->128, 3x3
@@ -93,6 +101,7 @@ struct CNN {
     Conv2D* conv3_1x1;      // 128->256, 1x1
     BatchNorm2D* bn3_1x1;   // Batch norm after conv3_1x1
     Conv2D* shortcut3;      // 128->256, 1x1 shortcut
+    BatchNorm2D* bn_shortcut3; // Batch norm for shortcut3 (matches PyTorch)
 
     // Pooling layers (only for blocks 1 and 2)
     MaxPool2D* pool1;       // 28x28 -> 14x14
@@ -143,6 +152,7 @@ Tensor* cnn_predict(CNN* model, Tensor* input);
 // Step optimizer
 void cnn_step_optimizer(CNN* model);
 
+
 // Step scheduler
 void cnn_step_scheduler(CNN* model);
 
@@ -161,34 +171,58 @@ int cnn_load_weights_from_files(CNN* model,
                                const char* conv1_3x3_bias_path,
                                const char* bn1_3x3_gamma_path,
                                const char* bn1_3x3_beta_path,
+                               const char* bn1_3x3_running_mean_path,
+                               const char* bn1_3x3_running_var_path,
                                const char* conv1_1x1_weight_path,
                                const char* conv1_1x1_bias_path,
                                const char* bn1_1x1_gamma_path,
                                const char* bn1_1x1_beta_path,
+                               const char* bn1_1x1_running_mean_path,
+                               const char* bn1_1x1_running_var_path,
                                const char* shortcut1_weight_path,
                                const char* shortcut1_bias_path,
+                               const char* bn_shortcut1_gamma_path,
+                               const char* bn_shortcut1_beta_path,
+                               const char* bn_shortcut1_running_mean_path,
+                               const char* bn_shortcut1_running_var_path,
 
                                const char* conv2_3x3_weight_path,
                                const char* conv2_3x3_bias_path,
                                const char* bn2_3x3_gamma_path,
                                const char* bn2_3x3_beta_path,
+                               const char* bn2_3x3_running_mean_path,
+                               const char* bn2_3x3_running_var_path,
                                const char* conv2_1x1_weight_path,
                                const char* conv2_1x1_bias_path,
                                const char* bn2_1x1_gamma_path,
                                const char* bn2_1x1_beta_path,
+                               const char* bn2_1x1_running_mean_path,
+                               const char* bn2_1x1_running_var_path,
                                const char* shortcut2_weight_path,
                                const char* shortcut2_bias_path,
+                               const char* bn_shortcut2_gamma_path,
+                               const char* bn_shortcut2_beta_path,
+                               const char* bn_shortcut2_running_mean_path,
+                               const char* bn_shortcut2_running_var_path,
 
                                const char* conv3_3x3_weight_path,
                                const char* conv3_3x3_bias_path,
                                const char* bn3_3x3_gamma_path,
                                const char* bn3_3x3_beta_path,
+                               const char* bn3_3x3_running_mean_path,
+                               const char* bn3_3x3_running_var_path,
                                const char* conv3_1x1_weight_path,
                                const char* conv3_1x1_bias_path,
                                const char* bn3_1x1_gamma_path,
                                const char* bn3_1x1_beta_path,
+                               const char* bn3_1x1_running_mean_path,
+                               const char* bn3_1x1_running_var_path,
                                const char* shortcut3_weight_path,
                                const char* shortcut3_bias_path,
+                               const char* bn_shortcut3_gamma_path,
+                               const char* bn_shortcut3_beta_path,
+                               const char* bn_shortcut3_running_mean_path,
+                               const char* bn_shortcut3_running_var_path,
 
                                const char* fc1_weight_path,
                                const char* fc1_bias_path,

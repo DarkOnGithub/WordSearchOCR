@@ -1,0 +1,291 @@
+\section{Architecture du réseau de neurones}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{ressources/diagram.png}
+    \caption{Diagramme de l'architecture du réseau de neurones}
+    \label{fig:cnn_architecture}
+\end{figure}
+
+Avant de détailler l'architecture du réseau, il est important de comprendre le rôle de chaque couche qui le compose.
+
+\subsection{Couche linéaire}
+
+La couche linéaire, également connue sous le nom de couche entièrement connectée ou dense, est l'un des blocs de construction fondamentaux des réseaux de neurones. Son rôle est d'effectuer une transformation affine sur les données d'entrée.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.3\textwidth]{ressources/Linear.png}
+  \caption{Couche linéaire}
+  \label{fig:linear_layer}
+\end{figure}
+
+\subsubsection{Passe avant (Forward Pass)}
+La passe avant d'une couche linéaire calcule la sortie \(\mathbf{Y}\) en appliquant une transformation affine à l'entrée \(\mathbf{X}\). Cette transformation est définie par :
+\[ \mathbf{Y} = \mathbf{X}\mathbf{W} + \mathbf{b} \]
+où \(\mathbf{W}\) est la matrice des poids et \(\mathbf{b}\) le vecteur de biais, qui sont les paramètres apprenables de la couche. L'entrée \(\mathbf{X}\) est mise en cache pour être utilisée lors de la passe arrière.
+
+\subsubsection{Passe arrière (Backward Pass)}
+La passe arrière a pour but de calculer les gradients de la fonction de perte \(L\) par rapport aux entrées et aux paramètres de la couche. Ces calculs se basent sur le gradient de la perte par rapport à la sortie, \(\frac{\partial L}{\partial \mathbf{Y}}\), qui est fourni par la couche suivante. En appliquant la règle de dérivation en chaîne, on obtient les gradients suivants :
+
+\begin{itemize}
+    \item \textbf{Gradient par rapport à l'entrée (\(\frac{\partial L}{\partial \mathbf{X}}\))}: Ce gradient est propagé à la couche précédente.
+    \[ \frac{\partial L}{\partial \mathbf{X}} = \frac{\partial L}{\partial \mathbf{Y}} \mathbf{W}^T \]
+    \item \textbf{Gradient par rapport aux poids (\(\frac{\partial L}{\partial \mathbf{W}}\))}: Utilisé pour mettre à jour les poids.
+    \[ \frac{\partial L}{\partial \mathbf{W}} = \mathbf{X}^T \frac{\partial L}{\partial \mathbf{Y}} \]
+    \item \textbf{Gradient par rapport au biais (\(\frac{\partial L}{\partial \mathbf{b}}\))}: Utilisé pour mettre à jour les biais.
+    \[ \frac{\partial L}{\partial \mathbf{b}} = \sum_{\text{batch}} \frac{\partial L}{\partial \mathbf{Y}} \]
+\end{itemize}
+
+
+
+\subsection{Couche de convolution 2D (Conv2D)}
+
+La couche de convolution 2D est la pierre angulaire des réseaux de neurones convolutifs, spécialisée dans la détection de caractéristiques locales dans les données d'entrée, telles que les images. Elle fonctionne en faisant glisser un ou plusieurs filtres (ou noyaux, \textit{kernels}) sur l'image d'entrée. Chaque filtre est une petite matrice de poids apprenables.
+
+À chaque position, la couche effectue un produit scalaire entre les poids du filtre et la région correspondante de l'image. Ce processus génère une carte de caractéristiques (\textit{feature map}), qui indique la présence de la caractéristique que le filtre est conçu pour détecter (par exemple, des contours verticaux, des coins, ou des motifs de couleur). En utilisant plusieurs filtres, un CNN peut apprendre à extraire une riche hiérarchie de caractéristiques, des plus simples aux plus complexes.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.7\textwidth]{ressources/Conv2d.png}
+  \caption{Exemple de carte de caractéristiques}
+  \label{fig:conv2d_layer}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.7\textwidth]{ressources/Conv2d_M.png}
+  \caption{Exemple de convolution 2D}
+  \label{fig:conv2d_example}
+\end{figure}
+
+\subsubsection{Passe avant (Forward Pass)}
+Soit une entrée \(\mathbf{X}\) de forme \((C_{in}, H_{in}, W_{in})\) et une couche de convolution avec \(C_{out}\) filtres de taille \((K_H, K_W)\), avec un pas (\textit{stride}) \(S\) et un remplissage (\textit{padding}) \(P\). La sortie \(\mathbf{Y}\) de forme \((C_{out}, H_{out}, W_{out})\) est calculée comme suit pour chaque carte de caractéristiques de sortie \(c_{out}\) aux coordonnées \((i, j)\):
+
+\[ \mathbf{Y}_{c_{out}, i, j} = \left( \sum_{c_{in}=0}^{C_{in}-1} \sum_{k_h=0}^{K_H-1} \sum_{k_w=0}^{K_W-1} \mathbf{X}'_{c_{in}, i \cdot S + k_h, j \cdot S + k_w} \cdot \mathbf{K}_{c_{out}, c_{in}, k_h, k_w} \right) + \mathbf{b}_{c_{out}} \]
+
+Où \(\mathbf{X}'\) est l'entrée après application du padding, \(\mathbf{K}\) est le tenseur des poids des filtres, et \(\mathbf{b}\) est le vecteur de biais. Les dimensions de la sortie sont données par :
+\[ H_{out} = \left\lfloor \frac{H_{in} - K_H + 2P}{S} \right\rfloor + 1 \]
+\[ W_{out} = \left\lfloor \frac{W_{in} - K_W + 2P}{S} \right\rfloor + 1 \]
+
+
+\subsubsection{Passe arrière (Backward Pass)}
+La passe arrière calcule les gradients de la fonction de perte par rapport aux entrées et aux paramètres de la couche, en utilisant la règle de dérivation en chaîne et le gradient de la couche suivante, \(\frac{\partial L}{\partial \mathbf{Y}}\).
+
+\begin{itemize}
+    \item \textbf{Gradient par rapport au biais (\(\frac{\partial L}{\partial \mathbf{b}}\))}: C'est la somme des gradients de la carte de caractéristiques de sortie.
+    \[ \frac{\partial L}{\partial b_{c_{out}}} = \sum_{i=0}^{H_{out}-1} \sum_{j=0}^{W_{out}-1} \left(\frac{\partial L}{\partial \mathbf{Y}}\right)_{c_{out}, i, j} \]
+
+    \item \textbf{Gradient par rapport aux poids (\(\frac{\partial L}{\partial \mathbf{K}}\))}: Ce gradient est obtenu en convoluant l'entrée \(\mathbf{X}\) avec le gradient de la sortie \(\frac{\partial L}{\partial \mathbf{Y}}\).
+    \[ \left(\frac{\partial L}{\partial \mathbf{K}}\right)_{c_{out}, c_{in}, k_h, k_w} = \sum_{i=0}^{H_{out}-1} \sum_{j=0}^{W_{out}-1} \mathbf{X}'_{c_{in}, i \cdot S + k_h, j \cdot S + k_w} \left(\frac{\partial L}{\partial \mathbf{Y}}\right)_{c_{out}, i, j} \]
+
+    \item \textbf{Gradient par rapport à l'entrée (\(\frac{\partial L}{\partial \mathbf{X}}\))}: Ce calcul est plus complexe et correspond à une "convolution transposée" (parfois appelée déconvolution). Il s'agit d'une convolution entre les filtres \(\mathbf{K}\) (pivotés de 180 degrés) et le gradient de sortie \(\frac{\partial L}{\partial \mathbf{Y}}\), en tenant compte du pas et du remplissage.
+\end{itemize}
+Lorsque la technique \texttt{im2col} est utilisée, ces opérations de passe arrière se réduisent également à des multiplications de matrices, préservant ainsi l'efficacité des calculs.
+
+\subsubsection{Optimisation algorithmique de la convolution}
+Une implémentation naïve de la convolution avec des boucles imbriquées est extrêmement inefficace. Pour accélérer les calculs, notre approche se concentre sur l'optimisation directe de l'opération de convolution. L'objectif est de maximiser l'utilisation des calculs et d'exploiter efficacement la hiérarchie de la mémoire.
+
+Les noyaux de convolution 1x1 et 3x3 étant les plus fréquents dans notre architecture, des stratégies d'optimisation spécifiques ont été développées pour ces deux cas. Ces stratégies visent à exploiter le parallélisme des données à un grain fin et à distribuer la charge de travail sur plusieurs cœurs de processeur.
+
+\paragraph{Noyaux 1x1 :} Pour les convolutions 1x1, l'opération se simplifie en une multiplication par accumulation sur les canaux d'entrée, où chaque pixel peut être traité indépendamment. Cette propriété permet un très haut degré de parallélisme. L'implémentation tire parti de cette indépendance pour traiter de grands blocs de pixels simultanément, ce qui réduit considérablement la surcharge liée aux boucles et maximise le débit de calcul.
+
+\paragraph{Noyaux 3x3 :} Les convolutions 3x3 sont plus complexes à optimiser en raison de la dépendance aux pixels voisins. Notre approche divise le problème :
+\begin{itemize}
+    \item Le calcul pour les \textbf{pixels intérieurs} de l'image, où le noyau de convolution ne dépasse pas les limites, est effectué par un chemin de code hautement optimisé qui traite plusieurs pixels de sortie en parallèle.
+    \item Le calcul pour les \textbf{pixels sur les bords}, qui nécessitent une gestion attentive du remplissage, est géré par un chemin de code distinct et plus général pour assurer l'exactitude.
+\end{itemize}
+Cette séparation permet de paralléliser massivement le traitement de la grande majorité des pixels (l'intérieur) tout en gérant correctement les cas particuliers des bords.
+
+
+
+\subsubsection{Autres pistes d'optimisation}
+
+Au-delà de l'implémentation directe, plusieurs algorithmes avancés existent pour accélérer les convolutions, chacun avec ses propres compromis.
+
+\paragraph{im2col + GEMM :} Une approche très répandue consiste à transformer les patchs de l'image d'entrée en colonnes d'une matrice (\texttt{im2col}). L'opération de convolution est alors réduite à une unique multiplication de cette matrice avec la matrice des poids du noyau, une opération connue sous le nom de GEMM (General Matrix-Matrix Multiplication) pour laquelle il existe des bibliothèques hautement optimisées. Cependant, cette méthode présente un inconvénient majeur : la transformation \texttt{im2col} duplique les données de l'image d'entrée, ce qui entraîne une consommation de mémoire significativement plus élevée. De plus, pour des noyaux de petite taille, comme 3x3, le coût de cette réorganisation de la mémoire peut parfois dépasser les gains de performance obtenus par la multiplication de matrices, rendant cette approche moins efficace que des algorithmes directs bien optimisés.
+
+\paragraph{Algorithme de Winograd :} L'algorithme de Winograd est une autre technique particulièrement efficace pour les convolutions avec de petits noyaux, notamment 3x3, qui sont omniprésents dans les architectures de réseaux de neurones modernes. Plutôt que de transformer l'opération en une grande multiplication de matrices, Winograd utilise une transformation linéaire pour réduire considérablement le nombre de multiplications arithmétiques requises. Par exemple, pour un noyau 3x3 sur une tuile de sortie de 2x2, il est possible de réduire le nombre de multiplications de 36 à 16, soit une accélération théorique de 2.25x. Cette réduction se fait au détriment d'un plus grand nombre d'additions et de transformations de données, mais comme les multiplications sont beaucoup plus coûteuses que les additions sur le matériel moderne, le gain de performance est substantiel.
+
+\paragraph{Convolution à base de FFT :} Pour les noyaux de grande taille, la convolution peut être calculée de manière très efficace en utilisant la Transformée de Fourier Rapide (FFT). Selon le théorème de convolution, une convolution dans le domaine spatial est équivalente à une multiplication élément par élément dans le domaine fréquentiel. L'algorithme consiste donc à transformer l'image et le noyau dans le domaine fréquentiel via une FFT, à effectuer la multiplication, puis à retransformer le résultat dans le domaine spatial via une FFT inverse. Cependant, le coût des transformations FFT est élevé, ce qui rend cette méthode inefficace pour les petits noyaux.
+
+
+\subsection{Couche de Normalisation par Lots (Batch Normalization)}
+
+La normalisation par lots est une technique essentielle pour l'entraînement des réseaux de neurones profonds. Son objectif principal est de réduire le \textit{changement de covariable interne} , un phénomène où la distribution des entrées de chaque couche change au fur et à mesure que les paramètres des couches précédentes sont mis à jour. En stabilisant cette distribution, la normalisation par lots permet d'accélérer la convergence, d'utiliser des taux d'apprentissage plus élevés et de régulariser le modèle.
+
+\mynote{\small\textit{Dans le contexte de l'apprentissage automatique, la convergence désigne l'état, lors de l'entraînement, où les performances du modèle sur l'ensemble de données d'entraînement cessent de s'améliorer. Ce phénomène s'observe généralement lorsque la valeur de la fonction de perte se stabilise, indiquant que le modèle a appris les motifs dans les données au mieux de ses capacités avec la configuration actuelle.}}
+
+\subsubsection{Passe avant (Forward Pass)}
+
+\paragraph{En mode entraînement :} Pour un mini-lot de données \(\mathcal{B} = \{x_1, \dots, x_m\}\), la couche calcule d'abord la moyenne \(\mu_{\mathcal{B}}\) et la variance \(\sigma^2_{\mathcal{B}}\) de ce lot.
+\[ \mu_{\mathcal{B}} = \frac{1}{m} \sum_{i=1}^{m} x_i \]
+\[ \sigma^2_{\mathcal{B}} = \frac{1}{m} \sum_{i=1}^{m} (x_i - \mu_{\mathcal{B}})^2 \]
+Chaque entrée du lot est ensuite normalisée :
+\[ \hat{x}_i = \frac{x_i - \mu_{\mathcal{B}}}{\sqrt{\sigma^2_{\mathcal{B}} + \epsilon}} \]
+où \(\epsilon\) est une petite constante ajoutée pour la stabilité numérique.
+Finalement, une transformation affine est appliquée à l'aide de deux paramètres entraînables, \(\gamma\) (échelle) et \(\beta\) (décalage), pour préserver la capacité de représentation du réseau :
+\[ y_i = \gamma \hat{x}_i + \beta \]
+Durant l'entraînement, la couche maintient également une moyenne mobile de la moyenne et de la variance, qui seront utilisées pendant l'inférence.
+
+\paragraph{En mode inférence :} Au lieu de calculer la moyenne et la variance sur le lot courant, la couche utilise les moyennes mobiles accumulées durant l'entraînement pour normaliser les entrées. Cela garantit que la sortie est déterministe pour une entrée donnée.
+
+\mynote{\small\textit{Les moyennes mobiles sont une technique statistique permettant d'estimer de manière stable la moyenne et la variance globales sur l'ensemble des données d'entraînement. Plutôt que de simplement moyenner les statistiques de chaque lot, une moyenne mobile exponentielle est utilisée. À chaque nouveau lot, les moyennes mobiles sont mises à jour en intégrant une fraction des statistiques du lot courant, contrôlée par un facteur de momentum. Cette approche donne plus de poids aux lots récents tout en conservant une mémoire des lots passés, aboutissant à une estimation robuste qui est ensuite utilisée pour la normalisation en mode inférence.}}
+
+\subsubsection{Passe arrière (Backward Pass)}
+La passe arrière calcule les gradients de la fonction de perte par rapport aux paramètres \(\gamma\) et \(\beta\), ainsi que par rapport à l'entrée de la couche \(x\). Le calcul du gradient par rapport à l'entrée est complexe, car la sortie de chaque neurone dépend de l'ensemble des entrées du mini-lot à travers la moyenne et la variance. La règle de dérivation en chaîne est appliquée pour propager correctement les gradients à travers l'opération de normalisation.
+
+En supposant que nous ayons le gradient de la perte par rapport à la sortie de la couche de normalisation par lots, \(\frac{\partial L}{\partial y_i}\), les gradients sont calculés comme suit :
+
+\begin{itemize}
+    \item \textbf{Gradient par rapport au décalage (\(\frac{\partial L}{\partial \beta}\))}:
+    \[ \frac{\partial L}{\partial \beta} = \sum_{i=1}^{m} \frac{\partial L}{\partial y_i} \]
+    \item \textbf{Gradient par rapport à l'échelle (\(\frac{\partial L}{\partial \gamma}\))}:
+    \[ \frac{\partial L}{\partial \gamma} = \sum_{i=1}^{m} \frac{\partial L}{\partial y_j} \hat{x}_i \]
+    \item \textbf{Gradient par rapport à l'entrée (\(\frac{\partial L}{\partial x_i}\))}:
+    \[ \frac{\partial L}{\partial x_i} = \frac{\gamma}{\sqrt{\sigma^2_{\mathcal{B}} + \epsilon}} \left( \frac{\partial L}{\partial y_i} - \frac{1}{m} \sum_{j=1}^{m} \frac{\partial L}{\partial y_j} - \frac{\hat{x}_i}{m} \sum_{j=1}^{m} \frac{\partial L}{\partial y_j} \hat{x}_j \right) \]
+\end{itemize}
+
+
+\subsection{Couche de Dropout}
+
+Le \textit{dropout} est une technique de régularisation puissante et simple pour les réseaux de neurones, conçue pour lutter contre le surapprentissage (\textit{overfitting}).
+\newline\newline\mynote{\small\textit{Le surapprentissage, ou \textit{overfitting}, se produit lorsque le réseau apprend "par cœur" les données d'entraînement, y compris leur bruit, au lieu d'apprendre à généraliser à de nouvelles données.}}
+\newline
+Le dropout prévient ce phénomène en forçant le réseau à ne pas trop dépendre de neurones spécifiques.
+
+L'idée centrale du dropout est de désactiver aléatoirement un certain nombre de neurones pendant la phase d'entraînement. À chaque itération, chaque neurone a une probabilité \(p\) (le \textit{dropout rate}) d'être temporairement "abandonné", c'est-à-dire que sa sortie est mise à zéro.
+
+
+\subsubsection{Passe avant (Forward Pass)}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.7\textwidth]{ressources/Dropout.png}
+  \caption{Exemple de dropout}
+  \label{fig:dropout_layer}
+\end{figure}
+\paragraph{En mode entraînement :} Durant la passe avant, pour chaque lot de données, une "masque" de dropout est généré. Ce masque est un tenseur de la même forme que l'entrée, contenant des 0 et des 1. Un neurone est désactivé si la valeur correspondante dans le masque est 0. Pour compenser la désactivation d'une partie des neurones et conserver une espérance de sortie constante, les activations des neurones restants sont mises à l'échelle. La technique la plus courante, appelée \textit{inverted dropout}, consiste à diviser les activations des neurones conservés par \(1-p\). L'opération peut se résumer ainsi :
+\[ y_i = \begin{cases} 0 & \text{avec probabilité } p \\ \frac{x_i}{1-p} & \text{avec probabilité } 1-p \end{cases} \]
+Où \(x_i\) est l'entrée d'un neurone et \(y_i\) sa sortie. Cette mise à l'échelle durant l'entraînement a l'avantage de ne nécessiter aucune modification durant la phase d'inférence.
+
+\paragraph{En mode inférence :} Lors de l'évaluation du modèle, le dropout est désactivé. Tous les neurones sont utilisés, et leurs sorties ne sont pas modifiées. Grâce à la technique de l'\textit{inverted dropout}, la sortie du réseau a déjà la bonne échelle.
+
+\subsubsection{Passe arrière (Backward Pass)}
+Pendant la passe arrière, le gradient est simplement propagé à travers les neurones qui n'ont pas été désactivés. Les neurones "abandonnés" ne reçoivent aucun gradient et ne participent donc pas à la mise à jour des poids pour cette itération. Ceci est réalisé en appliquant le même masque de dropout (\(\mathbf{M}\)) utilisé lors de la passe avant au gradient de la sortie:
+\[ \frac{\partial L}{\partial \mathbf{X}} = \frac{\partial L}{\partial \mathbf{Y}} \odot \mathbf{M} \]
+Où \(\odot\) représente la multiplication élément par élément.
+
+
+\subsection{Couche de Dropout 2D (Dropout2D)}
+
+Le Dropout 2D est une variante de la technique de dropout spécifiquement adaptée aux couches de convolution. Alors que le dropout standard désactive des neurones individuels de manière indépendante, cette approche n'est pas toujours optimale pour les données d'image traitées par des CNNs. Dans les cartes de caractéristiques (\textit{feature maps}) produites par les couches convolutives, les pixels adjacents sont souvent fortement corrélés. La désactivation de pixels individuels de manière aléatoire introduit un bruit qui peut être facilement compensé par les pixels voisins, réduisant ainsi l'efficacité de la régularisation.
+
+Pour remédier à ce problème, le Dropout 2D désactive des cartes de caractéristiques entières. Au lieu de tirer un nombre aléatoire pour chaque pixel, un seul est tiré pour chaque canal de l'entrée pour chaque exemple dans le lot.
+
+\subsubsection{Passe avant (Forward Pass)}
+
+\paragraph{En mode entraînement :} Pour une entrée de forme \((B, C, H, W)\), où \(B\) est la taille du lot, \(C\) le nombre de canaux, \(H\) la hauteur et \(W\) la largeur, un masque de dropout est généré avec une forme \((B, C, 1, 1)\). Pour chaque exemple du lot et chaque canal, une décision est prise : soit le canal entier est mis à zéro (avec une probabilité \(p\)), soit il est conservé et mis à l'échelle par \(1/(1-p)\). Ce masque est ensuite diffusé (\textit{broadcasted}) sur les dimensions spatiales (hauteur et largeur) de l'entrée.
+
+\paragraph{En mode inférence :} Comme pour le dropout standard, la couche Dropout 2D est désactivée pendant l'inférence. L'entrée est transmise sans modification.
+
+\subsubsection{Passe arrière (Backward Pass)}
+La passe arrière suit le même principe que la passe avant. Le gradient est propagé uniquement à travers les canaux qui ont été conservés. Le même masque de dropout 2D (\(\mathbf{M}\)) est appliqué au gradient de la sortie avant de le propager à la couche précédente.
+\[ \frac{\partial L}{\partial \mathbf{X}} = \frac{\partial L}{\partial \mathbf{Y}} \odot \text{broadcast}(\mathbf{M}) \]
+
+
+\subsection{Couche de Max-Pooling 2D (MaxPool2D)}
+
+La couche de Max-Pooling 2D est une opération de sous-échantillonnage (\textit{downsampling}) généralement placée après une couche de convolution. Son rôle est de réduire la dimension spatiale des cartes de caractéristiques, ce qui présente plusieurs avantages :
+\begin{itemize}
+    \item \textbf{Réduction de la complexité :} En diminuant la taille des données, elle réduit le nombre de paramètres et la charge de calcul dans les couches suivantes du réseau.
+    \item \textbf{Invariance aux translations :} Elle rend le réseau plus robuste aux petites translations des caractéristiques dans l'image. En ne conservant que la valeur maximale dans une région, la position exacte de cette caractéristique devient moins importante.
+    \item \textbf{Extraction des caractéristiques dominantes :} Elle aide à conserver les caractéristiques les plus saillantes (celles avec les activations les plus fortes) tout en écartant les informations moins pertinentes.
+\end{itemize}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.5\textwidth]{ressources/MaxPool2D.png}
+  \caption{Exemple de Max-Pooling 2D avec un noyau 2x2 et un pas de 2}
+  \label{fig:maxpool_layer}
+\end{figure}
+
+\subsubsection{Passe avant (Forward Pass)}
+L'opération de Max-Pooling consiste à faire glisser une fenêtre de taille \( (K_H, K_W) \) sur chaque carte de caractéristiques d'entrée. Pour chaque position de la fenêtre, seule la valeur maximale des éléments qu'elle recouvre est conservée et transmise à la carte de caractéristiques de sortie.
+
+Soit une entrée de forme \( (C, H_{in}, W_{in}) \), les dimensions de la sortie \( (C, H_{out}, W_{out}) \) sont calculées de la même manière que pour une couche de convolution, en fonction de la taille du noyau \( (K_H, K_W) \), du pas \( S \) et du remplissage \( P \) :
+\[ H_{out} = \left\lfloor \frac{H_{in} + 2P_H - K_H}{S_H} \right\rfloor + 1 \]
+\[ W_{out} = \left\lfloor \frac{W_{in} + 2P_W - K_W}{S_W} \right\rfloor + 1 \]
+Notre implémentation supporte également un mode \textit{ceil}, qui arrondit au supérieur au lieu de l'inférieur, ce qui peut parfois être utile pour ne pas perdre d'informations sur les bords.
+
+\subsubsection{Passe arrière (Backward Pass)}
+La passe arrière du Max-Pooling est particulière car l'opération n'est pas une fonction linéaire continue. Le gradient de la couche de sortie est simplement propagé à l'élément qui a été sélectionné comme maximum lors de la passe avant. Tous les autres éléments de la fenêtre de pooling reçoivent un gradient de zéro, car ils n'ont pas contribué à la sortie.
+
+Le processus est le suivant : pour chaque fenêtre de pooling de la passe avant, on identifie la position de la valeur maximale. Le gradient de la sortie correspondant est alors ajouté au gradient de l'entrée à cette position précise.
+
+Pour optimiser ce processus, notre implémentation conserve en mémoire les indices des maxima lors de la passe avant. Cela évite d'avoir à recalculer leurs positions lors de la passe arrière, accélérant ainsi significativement l'entraînement.
+
+
+\subsection{Couche de mise en commun moyenne adaptative 2D (Adaptive Average Pooling 2D)}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.5\textwidth]{ressources/AvgPool2D.png}
+  \caption{Example de mise en commun moyenne adaptive de 4x4 en 2x2}
+  \label{fig:maxpool_layer}
+\end{figure}
+La couche de mise en commun moyenne adaptative 2D est une opération de sous-échantillonnage qui permet de redimensionner une carte de caractéristiques à une taille de sortie cible fixe, quelle que soit sa taille d'entrée. Contrairement au Max-Pooling standard, qui utilise une fenêtre de taille et de pas fixes, l'Adaptive Average Pooling calcule dynamiquement la taille des régions de mise en commun en fonction des dimensions de l'entrée et de la sortie souhaitée.
+
+Cette propriété est particulièrement utile dans les architectures de réseaux de neurones qui doivent traiter des images de tailles variables. En garantissant une sortie de dimension fixe, cette couche permet de connecter de manière transparente les couches convolutives à des couches entièrement connectées, qui exigent une entrée de taille constante.
+
+Dans notre cas, bien que nous traitions des images de taille prédéfinie, cette couche reste essentielle pour aplatir la sortie des blocs convolutifs en un vecteur de taille fixe pour les couches linéaires finales.
+
+\subsubsection{Passe avant (Forward Pass)}
+
+Pour redimensionner la carte de caractéristiques d'entrée à la taille de sortie souhaitée, la couche la divise conceptuellement en une grille de régions rectangulaires. Le nombre de régions dans cette grille est égal au nombre de pixels de la sortie désirée (par exemple, pour une sortie 2x2, l'entrée est divisée en 4 régions).
+
+La valeur de chaque pixel de la carte de sortie est simplement la moyenne de toutes les valeurs contenues dans la région correspondante de l'entrée. La taille de ces régions est calculée dynamiquement pour couvrir toute l'image d'entrée.
+
+Pour une carte d'entrée \(\mathbf{X}\) de dimensions \((H_{in}, W_{in})\) et une sortie cible \((H_{out}, W_{out})\), la région de l'entrée correspondant au pixel de sortie \((i_{out}, j_{out})\) est définie par les indices de début et de fin :
+\[ h_{start} = \lfloor \frac{i_{out} \cdot H_{in}}{H_{out}} \rfloor, \quad h_{end} = \lceil \frac{(i_{out}+1) \cdot H_{in}}{H_{out}} \rceil \]
+\[ w_{start} = \lfloor \frac{j_{out} \cdot W_{in}}{W_{out}} \rfloor, \quad w_{end} = \lceil \frac{(j_{out}+1) \cdot W_{in}}{W_{out}} \rceil \]
+
+La valeur du pixel de sortie \(\mathbf{Y}_{i_{out}, j_{out}}\) est alors la moyenne des valeurs de \(\mathbf{X}\) dans cette région :
+\[ \mathbf{Y}_{i_{out}, j_{out}} = \frac{1}{(h_{end}-h_{start}) \cdot (w_{end}-w_{start})} \sum_{h=h_{start}}^{h_{end}-1} \sum_{w=w_{start}}^{w_{end}-1} \mathbf{X}_{h, w} \]
+
+\subsubsection{Passe arrière (Backward Pass)}
+
+Lors de la passe arrière, le gradient de la fonction de perte par rapport à la sortie de la couche est propagé aux entrées qui ont contribué à cette sortie. Comme l'opération de la passe avant est une moyenne, le gradient d'un pixel de sortie est distribué uniformément à tous les pixels du bac d'entrée correspondant.
+
+Pour un pixel de sortie donné \(\mathbf{Y}_{i_{out}, j_{out}}\), le gradient \(\frac{\partial L}{\partial \mathbf{Y}_{i_{out}, j_{out}}}\) est divisé par la taille du bac d'entrée, \(N = (h_{end}-h_{start}) \cdot (w_{end}-w_{start})\). Ce gradient réparti est ensuite ajouté au gradient de chaque pixel \(\mathbf{X}_{h, w}\) situé dans ce bac :
+\[ \frac{\partial L}{\partial \mathbf{X}_{h, w}} += \frac{1}{N} \frac{\partial L}{\partial \mathbf{Y}_{i_{out}, j_{out}}} \]
+Les gradients pour les pixels d'entrée qui n'ont pas contribué à cette sortie restent inchangés par cette opération. L'entrée de la passe avant est mise en cache pour retrouver facilement les dimensions des bacs lors de cette étape.
+
+\subsection{Fonction de perte : Entropie Croisée (Cross-Entropy Loss)}
+
+La fonction de perte d'entropie croisée est une mesure de performance fondamentale pour les tâches de classification en apprentissage automatique. Elle quantifie la différence entre deux distributions de probabilités : la distribution prédite par le modèle et la distribution réelle. Pour un problème de classification multi-classes, elle est presque toujours utilisée avec la fonction Softmax, qui convertit les scores bruts du réseau (\texttt{logits}) en une distribution de probabilités.
+
+\subsubsection{La fonction Softmax}
+La fonction Softmax prend en entrée un vecteur de scores \(\mathbf{z}\) et le transforme en un vecteur de probabilités \(\hat{\mathbf{y}}\), où chaque élément est compris entre 0 et 1 et la somme de tous les éléments est égale à 1. Pour un score \(z_i\), la probabilité correspondante est calculée comme suit :
+\[ \hat{y}_i = \text{Softmax}(z_i) = \frac{e^{z_i}}{\sum_{j=1}^{K} e^{z_j}} \]
+où \(K\) est le nombre total de classes.
+
+\paragraph{Stabilité numérique :} Le calcul de \(e^{z_j}\) peut entraîner des problèmes de stabilité numérique si les scores \(z_j\) sont très grands (risque de débordement) ou très petits (risque de sous-dépassement). Pour pallier ce problème, une astuce courante consiste à soustraire la valeur maximale des scores à chaque score avant l'exponentiation :
+\[ \text{Softmax}(z_i) = \frac{e^{z_i - \max(\mathbf{z})}}{\sum_{j=1}^{K} e^{z_j - \max(\mathbf{z})}} \]
+Cette transformation ne change pas le résultat final mais garantit que les arguments de la fonction exponentielle restent dans une plage de valeurs raisonnable.
+
+\subsubsection{Passe avant (Forward Pass)}
+Une fois les probabilités calculées via la fonction Softmax, la perte d'entropie croisée pour un unique exemple est définie comme le logarithme négatif de la probabilité prédite pour la classe correcte :
+\[ L_i = -\log(\hat{y}_{i, c}) \]
+où \(\hat{y}_{i, c}\) est la probabilité prédite par le modèle pour l'échantillon \(i\) appartenant à la classe correcte \(c\). La perte totale pour un lot de données est alors la moyenne des pertes de chaque exemple :
+\[ L = \frac{1}{N} \sum_{i=1}^{N} L_i = -\frac{1}{N} \sum_{i=1}^{N} \log(\hat{y}_{i, c_i}) \]
+où \(N\) est la taille du lot et \(c_i\) est la classe correcte pour l'exemple \(i\).
+
+\subsubsection{Passe arrière (Backward Pass)}
+L'un des avantages de combiner la fonction Softmax avec la perte d'entropie croisée est que le calcul du gradient par rapport aux scores d'entrée (avant Softmax) devient remarquablement simple et efficace. Le gradient de la perte \(L\) par rapport à un score d'entrée \(z_j\) est donné par :
+\[ \frac{\partial L}{\partial z_j} = \hat{y}_j - y_j \]
+où \(\hat{y}_j\) est la probabilité prédite par Softmax pour la classe \(j\), et \(y_j\) est la vérité (typiquement 1 si \(j\) est la classe correcte, et 0 sinon, ce qui correspond à un encodage "one-hot").
+
+Ce gradient a une interprétation intuitive : il correspond à la différence entre la probabilité prédite et la probabilité réelle. Si la prédiction est parfaite (\(\hat{y}_j = y_j\)), le gradient est nul. Sinon, le gradient indique la direction dans laquelle les scores doivent être ajustés pour réduire la perte.
+Le gradient final est ensuite moyenné sur la taille du lot pour rester cohérent avec la perte moyenne calculée lors de la passe avant.
+

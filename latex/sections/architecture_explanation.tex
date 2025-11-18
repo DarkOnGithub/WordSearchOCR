@@ -1,0 +1,207 @@
+\section{Explication de l'architecture utilisée}
+
+Nous allons maintenant détailler l'architecture de notre réseau de neurones.
+Notre réseau est structuré en plusieurs blocs distincts pour un traitement hiérarchique de l'information. Il se compose de trois \textbf{blocs de convolution} suivis d'un \textbf{bloc de classification}.
+
+Avant de décrire en détail ces blocs, nous allons d'abord présenter la fonction d'activation que nous avons choisie d'utiliser au sein de notre réseau : la fonction SiLU.
+
+\subsection{Fonction d'activation : SiLU (Sigmoid Linear Unit)}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.5\textwidth]{ressources/SiluVsRelu.png}
+  \caption{Comparaison entre SiLU et ReLU}
+  \label{fig:silu_vs_relu}
+\end{figure}
+La fonction d'activation SiLU, également connue sous le nom de Swish, est une fonction d'activation qui a récemment gagné en popularité en raison de ses performances supérieures à celles de fonctions plus traditionnelles comme ReLU dans de nombreuses architectures de réseaux de neurones profonds.
+
+La fonction SiLU est définie par la formule :
+\[ \text{SiLU}(x) = x \cdot \sigma(x) = \frac{x}{1 + e^{-x}} \]
+où \(\sigma(x)\) est la fonction sigmoïde.
+
+Quelques propriétés clés de SiLU expliquent son efficacité :
+\begin{itemize}
+    \item \textbf{Non-monotonicité :} Contrairement à ReLU, qui est monotone, SiLU présente une légère baisse pour les valeurs négatives avant de converger vers zéro. Cette caractéristique permet à la fonction de produire des activations négatives, ce qui peut aider à la propagation du gradient et à une meilleure expressivité du modèle.
+    \item \textbf{Continuité et dérivée lisse :} SiLU est une fonction lisse et continûment dérivable, ce qui la rend plus stable pendant l'optimisation par descente de gradient par rapport aux fonctions comme ReLU qui ont un point non-dérivable en zéro.
+    \item \textbf{Auto-régulation :} La fonction sigmoïde agit comme une porte qui module le signal d'entrée \(x\). Pour des valeurs de \(x\) très positives, \(\sigma(x) \approx 1\) et la sortie est proche de \(x\). Pour des valeurs de \(x\) très négatives, \(\sigma(x) \approx 0\) et la sortie est proche de zéro. Cette modulation adaptative est considérée comme l'une des raisons de sa bonne performance.
+    \item \textbf{Prévention de la "mort" des neurones :} Le fait que la dérivée de SiLU ne soit pas nulle pour les valeurs négatives (contrairement à ReLU) peut aider à atténuer le problème des "neurones morts", où un neurone cesse d'apprendre car son activation est toujours nulle.
+\end{itemize}
+
+
+\subsubsection{Choix par rapport à d'autres fonctions d'activation}
+Le choix de SiLU se justifie par une comparaison avec d'autres fonctions d'activation couramment utilisées.
+
+\paragraph{ReLU (Rectified Linear Unit)}
+\[ \text{ReLU}(x) = \max(0, x) \]
+Bien que simple et efficace, ReLU souffre du problème des "neurones morts" (\textit{dying ReLU}), où les neurones peuvent cesser d'apprendre si leurs entrées deviennent négatives. De plus, sa dérivée est discontinue en zéro. SiLU, en étant lisse et en ayant un gradient non nul pour les valeurs négatives, atténue ces problèmes.
+
+\paragraph{Leaky ReLU}
+\[ \text{Leaky ReLU}(x) = \max(0, x) + \alpha \min(0, x), \quad \alpha > 0 \]
+Cette fonction tente de résoudre le problème des neurones morts en introduisant une petite pente \(\alpha\) pour les valeurs négatives. Cependant, SiLU se distingue par sa non-monotonicité et sa nature auto-régulée, qui peuvent souvent conduire à de meilleures performances en pratique.
+
+\paragraph{Sigmoïde}
+\[ \sigma(x) = \frac{1}{1 + e^{-x}} \]
+Cette fonction est sujette au problème de la saturation et de la disparition du gradient (\textit{vanishing gradient}) dans les réseaux profonds, ce qui ralentit considérablement l'entraînement.
+
+\paragraph{Tanh (Tangente Hyperbolique)}
+\[ \tanh(x) = \frac{e^x - e^{-x}}{e^x + e^{-x}} \]
+Tout comme la sigmoïde, Tanh est sujette à la saturation et à la disparition du gradient, bien que son centrage en zéro soit un avantage par rapport à la sigmoïde. SiLU, comme ReLU, ne sature pas pour les valeurs positives, ce qui facilite un apprentissage plus rapide et plus stable.
+
+\paragraph{GELU (Gaussian Error Linear Unit)}
+\[ \text{GELU}(x) = x \cdot \Phi(x) \]
+où \(\Phi(x)\) est la fonction de répartition de la loi normale centrée réduite. C'est une autre fonction d'activation moderne et performante, particulièrement populaire dans les modèles de type Transformer (notamment utilisé pour les LLMs). Comme SiLU, elle est lisse et non-monotone. Bien que leurs performances soient souvent très similaires, SiLU peut être légèrement plus efficace sur le plan computationnel car la fonction sigmoïde est moins coûteuse à calculer que la fonction de répartition gaussienne (ou ses approximations) utilisée par GELU.
+
+L'utilisation de SiLU dans notre architecture vise à améliorer la capacité du réseau à apprendre des caractéristiques complexes et à accélérer la convergence lors de l'entraînement.
+
+\subsection{Initialisation des Poids}
+Pour initialiser les poids des couches de convolution et des couches linéaires, nous avons opté pour l'initialisation \textbf{Xavier Uniforme} (également connue sous le nom de Glorot Uniform).
+
+Cette méthode tire les poids \( W \) d'une distribution uniforme définie comme suit :
+\[ W \sim \mathcal{U} \left[ -\frac{\sqrt{6}}{\sqrt{n_{\text{in}} + n_{\text{out}}}}, \frac{\sqrt{6}}{\sqrt{n_{\text{in}} + n_{\text{out}}}} \right] \]
+où \( n_{\text{in}} \) est le nombre de connexions entrantes et \( n_{\text{out}} \) le nombre de connexions sortantes de la couche.
+
+L'objectif de cette stratégie est de maintenir la variance des activations et des gradients relativement constante tout au long du réseau. Cela permet d'éviter les problèmes de disparition ou d'explosion du gradient, facilitant ainsi la convergence du modèle, en particulier pour des fonctions d'activation linéaires ou sigmoïdes.
+
+Cependant, il convient de noter qu'avec l'utilisation de la fonction d'activation \textbf{SiLU}, l'initialisation de \textbf{He} (Kaiming Initialization) aurait été théoriquement plus appropriée. En effet, SiLU partageant des propriétés avec ReLU (notamment le fait d'être non bornée pour les valeurs positives), l'initialisation de Xavier peut ne pas maintenir la variance de manière optimale.
+
+L'initialisation de He (mode Uniforme) est définie par :
+\[ W \sim \mathcal{U} \left[ -\sqrt{\frac{6}{n_{\text{in}}}}, \sqrt{\frac{6}{n_{\text{in}}}} \right] \]
+Elle prend en compte la nature rectificatrice des fonctions comme ReLU ou SiLU.
+
+Malgré ce choix sub-optimal, l'impact sur les performances reste limité. Notre réseau n'étant pas extrêmement profond, et grâce à l'utilisation de la normalisation par lots après chaque convolution, les effets de l'initialisation sont atténués et n'entravent pas l'apprentissage.
+
+\subsection{Principes de Conception : Blocs Résiduels et Efficacité}
+Notre architecture est fortement inspirée des principes des réseaux de neurones résiduels (ResNets).
+
+\paragraph{Le Problème des Réseaux Profonds et la Solution Résiduelle}
+Historiquement, l'augmentation de la profondeur d'un réseau de neurones (l'ajout de couches supplémentaires) se heurtait à un obstacle majeur : le problème de la \textbf{disparition du gradient} (\textit{vanishing gradient}). Lors de la passe arrière, le gradient est multiplié à chaque couche ; dans un réseau très profond, ce gradient peut devenir si petit qu'il ne permet plus aux premières couches d'apprendre efficacement. Contre-intuitivement, cela menait à un phénomène de \textbf{dégradation}, où un réseau profond obtenait de moins bons résultats qu'un réseau moins profond.
+
+
+
+Les \textbf{connexions résiduelles} (\textit{residual connections} ou \textit{shortcuts}) ont été introduites pour résoudre ce problème. L'idée est de créer un "raccourci" qui permet à l'information (et au gradient) de contourner une ou plusieurs couches.
+
+Soit \(\mathcal{H}(x)\) la transformation que l'on souhaite qu'un bloc de couches apprenne. Dans un réseau traditionnel, ces couches tenteraient d'approximer directement \(\mathcal{H}(x)\). Dans un bloc résiduel, on reformule le problème. Les couches apprennent plutôt une fonction résiduelle \(\mathcal{F}(x)\), et la sortie du bloc est définie comme :
+\[ \mathbf{y} = \mathcal{F}(\mathbf{x}) + \mathbf{x} \]
+Ici, \(\mathbf{x}\) est l'entrée du bloc, et \(\mathcal{F}(\mathbf{x})\) représente la transformation effectuée par les couches du bloc (par exemple, une séquence de convolutions, de normalisations et d'activations). La connexion qui ajoute \(\mathbf{x}\) est la connexion résiduelle.
+
+Si la transformation identité (\(\mathcal{H}(x) = x\)) est optimale, il est beaucoup plus facile pour le réseau de pousser les poids de \(\mathcal{F}(x)\) vers zéro que de forcer les couches à apprendre la fonction identité. Cette formulation facilite la propagation du gradient lors de la passe arrière. En appliquant la règle de dérivation en chaîne, le gradient de la perte \(L\) par rapport à \(\mathbf{x}\) devient :
+\[ \frac{\partial L}{\partial \mathbf{x}} = \frac{\partial L}{\partial \mathbf{y}} \frac{\partial \mathbf{y}}{\partial \mathbf{x}} = \frac{\partial L}{\partial \mathbf{y}} \left( \frac{\partial \mathcal{F}(\mathbf{x})}{\partial \mathbf{x}} + 1 \right) \]
+Le terme `+1` garantit que le gradient peut toujours s'écouler à travers la connexion identité, même si le gradient provenant des couches \(\mathcal{F}(\mathbf{x})\) devient très faible. Cela empêche la disparition du gradient et permet d'entraîner des réseaux beaucoup plus profonds sans dégradation des performances.
+
+\paragraph{Choix Architecturaux pour la Performance}
+Le design de notre réseau vise un équilibre entre précision, vitesse d'entraînement et capacité de généralisation.
+\begin{itemize}
+    \item \textbf{Précision et Généralisation :} L'utilisation de blocs résiduels nous permet de construire un réseau suffisamment profond pour apprendre une hiérarchie de caractéristiques complexe, ce qui est essentiel pour atteindre une haute précision. Ces connexions agissent également comme une forme de régularisation implicite, améliorant la capacité du modèle à généraliser sur des données qu'il n'a jamais vues.
+    \item \textbf{Vitesse et Efficacité :}
+    \begin{itemize}
+        \item \textbf{Convolutions 1x1 :} L'emploi de convolutions 1x1 est une technique clé pour manipuler la profondeur des canaux de manière efficace. Elles permettent de réduire ou d'augmenter le nombre de cartes de caractéristiques avec un coût de calcul bien inférieur à celui des noyaux plus grands. Dans notre cas, elles servent à projeter l'entrée du bloc résiduel dans un espace de plus grande dimension pour correspondre à la sortie du chemin principal.
+        \item \textbf{Petits Noyaux (3x3) :} L'utilisation exclusive de petits noyaux de 3x3 est une pratique courante. L'empilement de deux couches 3x3 a un champ réceptif équivalent à une couche 5x5, mais avec moins de paramètres et une non-linéarité supplémentaire entre les deux.
+        \item \textbf{Global Average Pooling (GAP) :} Avant la classification finale, nous utilisons une couche de GAP au lieu d'aplatir directement les cartes de caractéristiques. Cette technique réduit considérablement le nombre de paramètres par rapport à une couche entièrement connectée traditionnelle, ce qui diminue fortement le risque de surapprentissage et allège le modèle.
+    \end{itemize}
+\end{itemize}
+
+
+\subsection{Détail de l'architecture}
+
+Le réseau prend en entrée des lots d'images en niveaux de gris de taille \texttt{28x28}. La forme d'un tenseur d'entrée est donc \texttt{(B, 1, 28, 28)}, où \texttt{B} est la taille du lot (nombre d'images traitées simultanément), \texttt{1} représente le canal unique (niveaux de gris), et \texttt{(28, 28)} sont les dimensions spatiales de l'image.
+
+\subsubsection{Bloc Convolutif 1}
+Ce premier bloc a pour rôle d'extraire des caractéristiques de bas niveau, telles que les contours et les textures simples, directement depuis l'image d'entrée. Il augmente également la profondeur (nombre de canaux) de 1 à 64, tout en réduisant la dimension spatiale de moitié, passant de 28x28 à 14x14. Une connexion résiduelle est utilisée pour faciliter le flux de gradient.
+
+\begin{itemize}
+    \item \textbf{Entrée :} \texttt{(B, 1, 28, 28)}
+    \item \textbf{Chemin principal :}
+    \begin{itemize}
+        \item \texttt{Conv2d} : 32 filtres, noyau 3x3, pas 1, remplissage 1. Sortie : \texttt{(B, 32, 28, 28)}
+        \item \texttt{BatchNorm2d} : sur 32 canaux.
+        \item \texttt{SiLU} : fonction d'activation.
+        \item \texttt{Conv2d} : 64 filtres, noyau 1x1, pas 1, remplissage 0. Sortie : \texttt{(B, 64, 28, 28)}
+        \item \texttt{BatchNorm2d} : sur 64 canaux.
+    \end{itemize}
+    \item \textbf{Chemin résiduel (Shortcut) :}
+    \begin{itemize}
+        \item \texttt{Conv2d} : 64 filtres, noyau 1x1, pas 1, remplissage 0. Sortie : \texttt{(B, 64, 28, 28)}
+        \item \texttt{BatchNorm2d} : sur 64 canaux.
+    \end{itemize}
+    \item \textbf{Opérations post-résiduelles :}
+    \begin{itemize}
+        \item Addition du chemin principal et du chemin résiduel.
+        \item \texttt{SiLU} : fonction d'activation.
+        \item \texttt{MaxPool2d} : noyau 2x2, pas 2. Sortie : \texttt{(B, 64, 14, 14)}
+        \item \texttt{Dropout2D} : taux de 10\%.
+    \end{itemize}
+    \item \textbf{Sortie :} \texttt{(B, 64, 14, 14)}
+\end{itemize}
+
+\subsubsection{Bloc Convolutif 2}
+Ce deuxième bloc s'appuie sur les caractéristiques extraites par le premier pour apprendre des motifs plus complexes. Il double à nouveau la profondeur des canaux (de 64 à 128) et réduit encore la dimension spatiale de moitié, de 14x14 à 7x7. La structure est similaire au premier bloc, avec une connexion résiduelle pour préserver l'information.
+
+\begin{itemize}
+    \item \textbf{Entrée :} \texttt{(B, 64, 14, 14)}
+    \item \textbf{Chemin principal :}
+    \begin{itemize}
+        \item \texttt{Conv2d} : 64 filtres, noyau 3x3, pas 1, remplissage 1. Sortie : \texttt{(B, 64, 14, 14)}
+        \item \texttt{BatchNorm2d} : sur 64 canaux.
+        \item \texttt{SiLU} : fonction d'activation.
+        \item \texttt{Conv2d} : 128 filtres, noyau 1x1, pas 1, remplissage 0. Sortie : \texttt{(B, 128, 14, 14)}
+        \item \texttt{BatchNorm2d} : sur 128 canaux.
+    \end{itemize}
+    \item \textbf{Chemin résiduel (Shortcut) :}
+    \begin{itemize}
+        \item \texttt{Conv2d} : 128 filtres, noyau 1x1, pas 1, remplissage 0. Sortie : \texttt{(B, 128, 14, 14)}
+        \item \texttt{BatchNorm2d} : sur 128 canaux.
+    \end{itemize}
+    \item \textbf{Opérations post-résiduelles :}
+    \begin{itemize}
+        \item Addition du chemin principal et du chemin résiduel.
+        \item \texttt{SiLU} : fonction d'activation.
+        \item \texttt{MaxPool2d} : noyau 2x2, pas 2. Sortie : \texttt{(B, 128, 7, 7)}
+        \item \texttt{Dropout2D} : taux de 10\%.
+    \end{itemize}
+    \item \textbf{Sortie :} \texttt{(B, 128, 7, 7)}
+\end{itemize}
+
+\subsubsection{Bloc Convolutif 3}
+Le troisième et dernier bloc convolutif affine davantage les caractéristiques pour capturer des informations sémantiques de plus haut niveau. La profondeur est de nouveau doublée, passant à 256 canaux, tandis que la résolution spatiale reste à 7x7. Ce bloc n'inclut pas de couche de pooling, car la réduction finale des dimensions spatiales sera gérée par la couche de mise en commun moyenne adaptative.
+
+\begin{itemize}
+    \item \textbf{Entrée :} \texttt{(B, 128, 7, 7)}
+    \item \textbf{Chemin principal :}
+    \begin{itemize}
+        \item \texttt{Conv2d} : 128 filtres, noyau 3x3, pas 1, remplissage 1. Sortie : \texttt{(B, 128, 7, 7)}
+        \item \texttt{BatchNorm2d} : sur 128 canaux.
+        \item \texttt{SiLU} : fonction d'activation.
+        \item \texttt{Conv2d} : 256 filtres, noyau 1x1, pas 1, remplissage 0. Sortie : \texttt{(B, 256, 7, 7)}
+        \item \texttt{BatchNorm2d} : sur 256 canaux.
+    \end{itemize}
+    \item \textbf{Chemin résiduel (Shortcut) :}
+    \begin{itemize}
+        \item \texttt{Conv2d} : 256 filtres, noyau 1x1, pas 1, remplissage 0. Sortie : \texttt{(B, 256, 7, 7)}
+        \item \texttt{BatchNorm2d} : sur 256 canaux.
+    \end{itemize}
+    \item \textbf{Opérations post-résiduelles :}
+    \begin{itemize}
+        \item Addition du chemin principal et du chemin résiduel.
+        \item \texttt{SiLU} : fonction d'activation.
+    \end{itemize}
+    \item \textbf{Sortie :} \texttt{(B, 256, 7, 7)}
+\end{itemize}
+
+\subsubsection{Tête de Classification}
+Cette partie finale du réseau prend les cartes de caractéristiques de haute dimension et les transforme en une prédiction finale. Elle agrège d'abord les informations spatiales, puis utilise des couches entièrement connectées pour effectuer la classification.
+
+\begin{itemize}
+    \item \textbf{Entrée :} \texttt{(B, 256, 7, 7)}
+    \item \textbf{Couches :}
+    \begin{itemize}
+        \item \texttt{AdaptiveAvgPool2d} : taille de sortie cible 1x1. Sortie : \texttt{(B, 256, 1, 1)}
+        \item Aplatissement (\textit{Flatten}) : transforme le tenseur en un vecteur. Sortie : \texttt{(B, 256)}
+        \item \texttt{Linear} (fc1) : 256 neurones d'entrée, 128 neurones de sortie. Sortie : \texttt{(B, 128)}
+        \item \texttt{SiLU} : fonction d'activation.
+        \item \texttt{Dropout} : taux de 25\%.
+        \item \texttt{Linear} (fc2) : 128 neurones d'entrée, 26 neurones de sortie (un par lettre). Sortie : \texttt{(B, 26)}
+    \end{itemize}
+    \item \textbf{Sortie Finale :} \texttt{(B, 26)}. Ce tenseur contient les scores bruts (\textit{logits}) pour chaque classe, qui sont ensuite passés à la fonction de perte d'entropie croisée pour l'entraînement.
+\end{itemize}
+
+

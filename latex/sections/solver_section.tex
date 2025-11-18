@@ -1,0 +1,131 @@
+\section{Le Solveur : Une Approche par Appariement de Patrons Probabilistes}
+\label{sec:solver}
+
+Le cœur du solveur est un algorithme de recherche de mots mêlés qui est une variation de l'algorithme d'appariement de patrons probabilistes (\textit{probabilistic template matching, (PTM)}). Dans cette approche, chaque mot à trouver est un patron, mais ni le patron ni la grille de recherche ne sont définis de manière déterministe. Ils sont représentés par des distributions de probabilités sur l'alphabet. Cette méthode est cruciale pour gérer l'incertitude inhérente à la reconnaissance de caractères effectuée par le Réseau de Neurones Convolutif (CNN).
+
+\subsection{Représentation Probabiliste}
+
+Les entrées du solveur ne sont pas de simples tableaux de caractères, mais des tenseurs qui capturent les probabilités pour chaque caractère, telles que déterminées par le réseau de neurones.
+
+\begin{itemize}
+    \item \textbf{La Grille} : La grille de mots mêlés est représentée par un tenseur tridimensionnel de forme \texttt{(hauteur, largeur, 26)}. Pour chaque cellule à la position $(r, c)$, il y a un vecteur de 26 probabilités, où le $k$-ième élément représente la probabilité que le caractère dans cette cellule soit la $k$-ième lettre de l'alphabet. Soit $G_{r,c,k}$ cette probabilité, alors pour toute cellule donnée $(r,c)$:
+    \[ \sum_{k=0}^{25} G_{r,c,k} = 1 \]
+
+    \item \textbf{Les Mots (Patrons)} : De même, chaque mot à trouver est représenté comme un patron probabiliste sous la forme d'un tenseur bidimensionnel de forme \texttt{(longueur\_mot, 26)}. Pour la $i$-ème lettre du mot, il y a un vecteur de 26 probabilités. Soit $W_{i,k}$ la probabilité que la $i$-ème lettre soit le $k$-ième caractère de l'alphabet.
+    \[ \sum_{k=0}^{25} W_{i,k} = 1 \]
+\end{itemize}
+
+Ce cadre probabiliste permet au solveur d'exploiter la sortie complète du CNN, plutôt que seulement sa prédiction la plus confiante (l'\texttt{argmax}), ce qui conduit à une recherche plus robuste et précise.
+
+\subsection{Le Mécanisme de Notation : Entropie Croisée}
+
+Pour trouver le meilleur emplacement pour un patron (un mot), il nous faut une mesure pour quantifier la qualité de la correspondance entre une séquence de cellules de la grille et le patron. L'algorithme utilise une méthode de notation basée sur l'entropie croisée, un concept fondamental de la théorie de l'information.
+
+\subsubsection{Log-Probabilités pour la Stabilité Numérique}
+Pour calculer la probabilité totale qu'un mot corresponde, il faudrait multiplier les probabilités individuelles de chaque lettre. Cependant, la multiplication répétée de nombres inférieurs à 1 (les probabilités) engendre un résultat si minuscule qu'il risque de dépasser la précision de l'ordinateur et d'être interprété comme zéro. Ce phénomène est connu sous le nom de sous-passement numérique (\textit{underflow}). Pour éviter cela, l'algorithme travaille dans le domaine logarithmique. La somme des log-probabilités est utilisée à la place du produit des probabilités :
+\[ \log(P_1 \times P_2 \times \dots \times P_L) = \sum_{i=1}^{L} \log(P_i) \]
+Cette transformation est numériquement stable et efficace.
+
+\subsubsection{Score Lettre-à-Cellule via l'Entropie Croisée}
+Le cœur de la notation est le calcul d'un score qui compare la distribution de probabilité d'une lettre du mot-patron avec celle d'une cellule de la grille. Pour ce faire, l'algorithme s'appuie sur le concept d'entropie croisée de la théorie de l'information.
+
+En théorie de l'information, la "surprise" est une mesure formelle de l'improbabilité d'un événement. Un événement à haute probabilité est peu surprenant, tandis qu'un événement rare est très surprenant. Dans notre contexte, l'entropie croisée évalue à quel point les probabilités de la grille sont "surprenantes" du point de vue des probabilités attendues du mot. Une bonne correspondance est une correspondance où la surprise est faible.
+
+Par exemple, si le patron est quasi certain que la lettre est un 'A', on s'attend à ce que la probabilité du 'A' dans la cellule de la grille soit également élevée. Si c'est le cas, la surprise est faible, et le score est élevé. Inversement, si la probabilité du 'A' dans la grille est très faible, la surprise est grande, ce qui résulte en un score très bas.
+
+Le score $S(r,c,i)$ pour la $i$-ème lettre du mot à la position $(r,c)$ de la grille est donc défini comme :
+\begin{equation}
+\label{eq:letter_score}
+S(r,c,i) = \sum_{k=0}^{25} W_{i,k} \cdot \log(G_{r,c,k})
+\end{equation}
+
+Cette approche est particulièrement robuste aux données bruitées issues du CNN. Plutôt que de prendre une décision binaire basée sur la lettre la plus probable (un `argmax`), le score prend en compte l'ensemble de la distribution de probabilité. Ainsi, même si la lettre correcte n'est pas la plus probable mais qu'elle a tout de même une probabilité non négligeable, elle contribuera positivement au score. Cela rend l'algorithme résistant aux erreurs occasionnelles et au manque de confiance du modèle de reconnaissance.
+
+Ici, $W_{i,k}$ agit comme la distribution "vraie" (celle de notre patron) et $\log(G_{r,c,k})$ est la distribution que nous évaluons. Le score est maximisé lorsque les probabilités $G_{r,c,k}$ sont élevées pour les mêmes lettres $k$ où les probabilités $W_{i,k}$ sont également élevées.
+
+\subsubsection{Score de Chemin}
+Un placement potentiel d'un mot est un chemin de cellules dans la grille. Le score total pour un mot le long d'un chemin est la somme des scores individuels lettre-à-cellule pour chaque lettre du mot le long de ce chemin, ce qui est équivalent à la log-probabilité de la séquence complète.
+\begin{equation}
+\label{eq:path_score}
+S_{\text{chemin}} = \sum_{i=0}^{L-1} S(r_i, c_i, i)
+\end{equation}
+où $(r_i, c_i)$ est la coordonnée de la grille correspondant à la $i$-ème lettre du mot pour le chemin donné.
+
+\subsection{Implémentation et Complexité de l'Algorithme}
+
+
+\begin{enumerate}
+    \item \textbf{Pré-calcul des Scores} : Pour optimiser la recherche, l'algorithme pré-calcule d'abord un tenseur \texttt{letter\_scores} de forme \texttt{(hauteur, largeur, longueur\_mot)}. Ce tenseur stocke le score $S(r,c,i)$ (de l'Équation \ref{eq:letter_score}) pour chaque combinaison d'une cellule de grille $(r,c)$ et d'un indice de lettre de mot $i$. Cette étape évite les calculs redondants. Les log-probabilités de la grille sont également calculées une seule fois.
+
+    \item \textbf{Recherche Exhaustive} : L'algorithme effectue une recherche exhaustive sur tous les placements de mots possibles. Un placement est défini par une position de départ et une direction.
+    \begin{itemize}
+        \item Il itère sur chaque cellule $(r,c)$ de la grille, considérant chacune comme un point de départ potentiel pour le mot.
+        \item Depuis chaque cellule, il cherche dans les 8 directions possibles (horizontale, verticale, et diagonale).
+    \end{itemize}
+
+    \item \textbf{Évaluation et Sélection} : Pour chaque chemin potentiel, l'algorithme vérifie sa validité (s'il reste dans la grille) et calcule son score total en sommant les scores pré-calculés. Il conserve en mémoire la correspondance ayant le score le plus élevé trouvé jusqu'à présent.
+\end{enumerate}
+
+Après avoir testé toutes les possibilités, la fonction renvoie le placement du mot avec le score global le plus élevé.
+
+\subsubsection{Analyse de la Complexité}
+Soit $H$ la hauteur de la grille, $W$ sa largeur, $L$ la longueur du mot à chercher, et $A$ la taille de l'alphabet (26).
+\begin{itemize}
+    \item Le pré-calcul du tenseur \texttt{letter\_scores} a une complexité de $\mathcal{O}(H \cdot W \cdot L \cdot A)$, car pour chaque cellule, chaque lettre du mot, nous calculons un produit scalaire sur l'alphabet.
+    \item La phase de recherche a une complexité de $\mathcal{O}(H \cdot W \cdot D \cdot L)$, où $D$ est le nombre de directions (8). Pour chaque point de départ et chaque direction, nous sommons $L$ scores pré-calculés.
+\end{itemize}
+La complexité totale est donc dominée par l'étape de pré-calcul : $\mathcal{O}(H \cdot W \cdot L \cdot A)$. Cette approche est efficace car le coût de l'appariement de l'alphabet est payé une seule fois.
+
+\subsubsection{Solveur Exact contre Solveur Heuristique}
+Notre algorithme est un \textbf{solveur exact}. Il est comparable à une recherche par force brute : il est plus lent mais garantit de trouver la réponse correcte en évaluant le score final de chaque chemin possible.
+
+Une approche alternative courante pour ce genre de problème utiliserait un arbre de préfixes (Trie) combiné à un algorithme de \textbf{recherche en faisceau (Beam Search)}. Cette méthode est un \textbf{solveur heuristique} : elle est beaucoup plus rapide, mais n'offre aucune garantie de trouver la meilleure solution. Pour notre projet, ce serait un mauvais choix.
+
+Le problème fondamental est que la recherche en faisceau est un algorithme "glouton", et les algorithmes gloutons peuvent échouer de manière catastrophique lorsque les données d'entrée sont, comme dans notre cas, extrêmement bruitées.
+
+\paragraph{Scénario d'échec de l'approche gloutonne}
+Une recherche en faisceau construit les chemins pour tous les mots potentiels simultanément, lettre par lettre. À chaque nouvelle lettre, elle élague (supprime) les chemins qui semblent les moins prometteurs en se basant sur leur score partiel.
+
+Imaginons que nous cherchons les mots "PYTHON" et "FLAMINGO", et que notre CNN, peu performant, a produit les scores suivants pour le chemin correct de "PYTHON" :
+\begin{itemize}
+    \item P (Lettre 1) : Bonne correspondance. Score = -1.5
+    \item Y (Lettre 2) : Correspondance extrêmement bruitée. Score = -10.0
+    \item T (Lettre 3) : Bonne correspondance. Score = -1.2
+    \item H (Lettre 4) : Bonne correspondance. Score = -1.0
+    \item O (Lettre 5) : Bonne correspondance. Score = -1.4
+    \item N (Lettre 6) : Bonne correspondance. Score = -1.1
+\end{itemize}
+Le score total, et donc correct, pour "PYTHON" est la somme de ces scores : \textbf{-16.2}.
+
+\paragraph{Comment la recherche en faisceau échoue}
+\begin{description}
+    \item[Étape 1 : Chemins d'une lettre.] La recherche commence et trouve plusieurs chemins, qu'elle classe par score. Disons qu'elle conserve les 10 meilleurs :
+    \begin{itemize}
+        \item Chemin("P") : Score = -1.5 (semble prometteur)
+        \item Chemin("F") : Score = -2.0
+        \item Chemin("A") : Score = -2.2
+        \item ...
+    \end{itemize}
+    \item[Étape 2 : Extension aux chemins de deux lettres.] L'algorithme étend les 10 chemins conservés :
+    \begin{itemize}
+        \item Chemin("FL") : Score("F") + Score("L") = -2.0 + -2.1 = \textbf{-4.1} (semble excellent)
+        \item Chemin("AV") : Score("A") + Score("V") = -2.2 + -2.5 = \textbf{-4.7} (semble très bon)
+        \item ...
+        \item Chemin("PY") : Score("P") + Score("Y") = -1.5 + (-10.0) = \textbf{-11.5} (semble très mauvais)
+    \end{itemize}
+    \item[L'élagage.] L'algorithme examine tous ses chemins de deux lettres et décide de ne conserver que les 10 meilleurs. Les chemins "FL" (-4.1) et "AV" (-4.7) sont conservés. Le chemin "PY", avec son score de -11.5, n'est pas dans le top 10. Il est donc élagué et \textbf{définitivement supprimé}.
+\end{description}
+
+\paragraph{Conclusion} La recherche en faisceau ne trouvera jamais "PYTHON". Elle a été trop "gloutonne" : en voyant le mauvais score partiel de "PY", elle a incorrectement supposé que le chemin entier serait mauvais, sans jamais voir que les lettres suivantes ("T", "H", "O", "N") constituaient une excellente correspondance qui aurait mené au véritable meilleur score.
+
+\paragraph{Pourquoi notre algorithme est robuste au bruit}
+La force de notre solveur exact réside dans sa robustesse face à des données bruitées, ce qui est notre cas principal en raison des imperfections du CNN.
+
+L'algorithme n'est pas "glouton" ; il n'abandonne jamais un chemin prématurément. Au lieu de cela, il évalue le score \textit{complet} de chaque chemin candidat avant de prendre une décision :
+\begin{itemize}
+    \item Il calcule le score final pour "PYTHON", incluant la lettre bruitée : -16.2.
+    \item Il calcule le score final pour "FLAMINGO" (par exemple) : -25.0.
+    \item Ce n'est qu'à la toute fin qu'il compare les scores finaux et choisit "PYTHON".
+\end{itemize}
+L'échec ponctuel et très bruité sur la lettre "Y" est compensé par les bonnes correspondances des autres lettres. En considérant l'évidence dans sa totalité, l'algorithme permet aux signaux forts de l'emporter sur le bruit. C'est cette capacité à intégrer toute l'information, sans jugement prématuré, qui le rend particulièrement adapté à notre problématique.
+

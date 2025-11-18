@@ -276,12 +276,12 @@ CrossEntropyBackwardOutput* cross_entropy_loss_backward(CrossEntropyLoss* loss,
         input_grad->data[idx] -= 1.0f;
     }
 
-    // Scale by output gradient
+    // Scale by output gradient and divide by batch_size for averaged loss
     // Note: loss is already averaged over batch in forward pass,
-    // so gradients here are for the averaged loss
-    float grad_scale = 1.0f;
+    // so gradients must also be averaged for consistency
+    float grad_scale = 1.0f / batch_size;  // Average over batch
     if (output_grad && output_grad->size > 0) {
-        grad_scale = output_grad->data[0];
+        grad_scale *= output_grad->data[0];
     }
 
     tensor_scale_inplace(input_grad, grad_scale);

@@ -15,6 +15,7 @@ typedef struct {
     Tensor* normalized_cache;
     Tensor* std_cache;
     Tensor* var_cache;
+    Tensor* mean_cache;
 } BatchNorm2D;
 
 typedef struct {

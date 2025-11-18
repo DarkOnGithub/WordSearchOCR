@@ -95,5 +95,3 @@ void step_lr_set_last_epoch(StepLR* scheduler, int epoch) {
 
     adam_set_learning_rate(scheduler->optimizer, new_lr);
 }
-
-

@@ -1,9 +1,15 @@
 #include "image/image.h"
+#include "nn/core/tensor.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gtk/gtk.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 void load_image(const char *path, Image *image)
 {
@@ -748,4 +754,308 @@ Tensor* to_tensor(Image* image) {
     }
 
     return tensor;
+}
+
+void resize_grayscale_image(Image* src, Image* dst, int target_width, int target_height) {
+    if (!src || !dst || !src->is_grayscale || !src->gray_pixels) {
+        fprintf(stderr, "Error: Invalid source image for resizing\n");
+        return;
+    }
+
+    dst->width = target_width;
+    dst->height = target_height;
+    dst->is_grayscale = true;
+    dst->rgba_pixels = NULL;
+    dst->gray_pixels = (uint8_t*)malloc(target_width * target_height * sizeof(uint8_t));
+
+    if (!dst->gray_pixels) {
+        fprintf(stderr, "Error: Failed to allocate memory for resized image\n");
+        return;
+    }
+
+    float x_ratio = (float)src->width / target_width;
+    float y_ratio = (float)src->height / target_height;
+
+    for (int y = 0; y < target_height; y++) {
+        for (int x = 0; x < target_width; x++) {
+            float src_x = x * x_ratio;
+            float src_y = y * y_ratio;
+
+            int x1 = (int)floorf(src_x);
+            int y1 = (int)floorf(src_y);
+            int x2 = (int)ceilf(src_x);
+            int y2 = (int)ceilf(src_y);
+
+            x1 = x1 < 0 ? 0 : (x1 >= src->width ? src->width - 1 : x1);
+            x2 = x2 < 0 ? 0 : (x2 >= src->width ? src->width - 1 : x2);
+            y1 = y1 < 0 ? 0 : (y1 >= src->height ? src->height - 1 : y1);
+            y2 = y2 < 0 ? 0 : (y2 >= src->height ? src->height - 1 : y2);
+
+            uint8_t p11 = src->gray_pixels[y1 * src->width + x1];
+            uint8_t p12 = src->gray_pixels[y1 * src->width + x2];
+            uint8_t p21 = src->gray_pixels[y2 * src->width + x1];
+            uint8_t p22 = src->gray_pixels[y2 * src->width + x2];
+
+            float dx = src_x - x1;
+            float dy = src_y - y1;
+
+            float interpolated = p11 * (1 - dx) * (1 - dy) +
+                               p12 * dx * (1 - dy) +
+                               p21 * (1 - dx) * dy +
+                               p22 * dx * dy;
+
+            dst->gray_pixels[y * target_width + x] = (uint8_t)roundf(interpolated);
+        }
+    }
+}
+
+void draw_angled_capsule(Image *image, int center_x, int center_y, int length, int width, double angle, int radius, uint32_t color)
+{
+    if (!image || length <= 0 || width <= 0 || radius < 0)
+    {
+        return;
+    }
+
+    // Allow radius to be larger than half the width for more prominent circular ends
+    // No upper limit restriction for capsule appearance
+
+    // Convert angle to radians
+    double rad_angle = angle * M_PI / 180.0;
+    double cos_angle = cos(rad_angle);
+    double sin_angle = sin(rad_angle);
+
+    // Calculate the half dimensions
+    double half_length = length / 2.0;
+    double half_width = width / 2.0;
+
+    // Calculate bounding box of the rotated capsule
+    double corners[4][2] = {
+        {-half_length, -half_width},
+        {half_length, -half_width},
+        {-half_length, half_width},
+        {half_length, half_width}
+    };
+
+    int min_x = INT_MAX, max_x = INT_MIN;
+    int min_y = INT_MAX, max_y = INT_MIN;
+
+    for (int i = 0; i < 4; i++)
+    {
+        // Rotate the corner
+        double rot_x = corners[i][0] * cos_angle - corners[i][1] * sin_angle;
+        double rot_y = corners[i][0] * sin_angle + corners[i][1] * cos_angle;
+
+        // Translate to center
+        int px = (int)(center_x + rot_x);
+        int py = (int)(center_y + rot_y);
+
+        if (px < min_x) min_x = px;
+        if (px > max_x) max_x = px;
+        if (py < min_y) min_y = py;
+        if (py > max_y) max_y = py;
+    }
+
+    // Add some padding for the rounded ends
+    min_x -= radius;
+    min_y -= radius;
+    max_x += radius;
+    max_y += radius;
+
+    // Clamp to image bounds
+    if (min_x < 0) min_x = 0;
+    if (min_y < 0) min_y = 0;
+    if (max_x >= image->width) max_x = image->width - 1;
+    if (max_y >= image->height) max_y = image->height - 1;
+
+    // Draw the capsule by checking each pixel in the bounding box
+    for (int y = min_y; y <= max_y; y++)
+    {
+        for (int x = min_x; x <= max_x; x++)
+        {
+            // Transform pixel back to capsule's local coordinate system
+            double dx = x - center_x;
+            double dy = y - center_y;
+
+            // Rotate back by negative angle
+            double local_x = dx * cos_angle + dy * sin_angle;
+            double local_y = -dx * sin_angle + dy * cos_angle;
+
+            // Check if point is inside the capsule
+            int inside = 0;
+
+            // Check if in the rectangular part
+            if (fabs(local_x) <= half_length - radius && fabs(local_y) <= half_width)
+            {
+                inside = 1;
+            }
+            // Check if in the left semicircle
+            else if (local_x < -half_length + radius && fabs(local_x + half_length - radius) <= radius)
+            {
+                double dist_sq = (local_x + half_length - radius) * (local_x + half_length - radius) +
+                                local_y * local_y;
+                if (dist_sq <= radius * radius)
+                {
+                    inside = 1;
+                }
+            }
+            // Check if in the right semicircle
+            else if (local_x > half_length - radius && fabs(local_x - half_length + radius) <= radius)
+            {
+                double dist_sq = (local_x - half_length + radius) * (local_x - half_length + radius) +
+                                local_y * local_y;
+                if (dist_sq <= radius * radius)
+                {
+                    inside = 1;
+                }
+            }
+
+            if (inside)
+            {
+                if (image->is_grayscale)
+                {
+                    image->gray_pixels[y * image->width + x] = (color >> 24) & 0xFF;
+                }
+                else if (image->rgba_pixels)
+                {
+                    // Alpha blending: blend capsule color with background
+                    uint32_t bg_pixel = image->rgba_pixels[y * image->width + x];
+
+                    // Extract components (ARGB format)
+                    uint8_t bg_r = (bg_pixel >> 16) & 0xFF;
+                    uint8_t bg_g = (bg_pixel >> 8) & 0xFF;
+                    uint8_t bg_b = bg_pixel & 0xFF;
+
+                    uint8_t fg_a = (color >> 24) & 0xFF;
+                    uint8_t fg_r = (color >> 16) & 0xFF;
+                    uint8_t fg_g = (color >> 8) & 0xFF;
+                    uint8_t fg_b = color & 0xFF;
+
+                    // Alpha blending formula
+                    float alpha = fg_a / 255.0f;
+                    uint8_t r = (uint8_t)(fg_r * alpha + bg_r * (1.0f - alpha));
+                    uint8_t g = (uint8_t)(fg_g * alpha + bg_g * (1.0f - alpha));
+                    uint8_t b = (uint8_t)(fg_b * alpha + bg_b * (1.0f - alpha));
+                    uint8_t a = 0xFF; // Final pixel is always opaque
+
+                    image->rgba_pixels[y * image->width + x] = (a << 24) | (r << 16) | (g << 8) | b;
+                }
+            }
+        }
+    }
+}
+
+void draw_rounded_rectangle(Image *image, int x, int y, int width, int height, int radius, uint32_t color)
+{
+    if (!image || width <= 0 || height <= 0 || radius < 0)
+    {
+        return;
+    }
+
+    // Ensure radius doesn't exceed half the smallest dimension
+    int max_radius = (width < height ? width : height) / 2;
+    if (radius > max_radius)
+    {
+        radius = max_radius;
+    }
+
+    // Draw the main rectangle (excluding corners)
+    draw_rectangle(image, x + radius, y, width - 2 * radius, height, true, 0, color);
+    draw_rectangle(image, x, y + radius, width, height - 2 * radius, true, 0, color);
+
+    // Draw the four corner quarter-circles
+    // Top-left corner
+    for (int dy = 0; dy <= radius; dy++)
+    {
+        for (int dx = 0; dx <= radius; dx++)
+        {
+            if (dx * dx + dy * dy <= radius * radius)
+            {
+                int px = x + radius - dx;
+                int py = y + radius - dy;
+                if (px >= 0 && px < image->width && py >= 0 && py < image->height)
+                {
+                    if (image->is_grayscale)
+                    {
+                        image->gray_pixels[py * image->width + px] = (color >> 24) & 0xFF;
+                    }
+                    else if (image->rgba_pixels)
+                    {
+                        image->rgba_pixels[py * image->width + px] = color;
+                    }
+                }
+            }
+        }
+    }
+
+    // Top-right corner
+    for (int dy = 0; dy <= radius; dy++)
+    {
+        for (int dx = 0; dx <= radius; dx++)
+        {
+            if (dx * dx + dy * dy <= radius * radius)
+            {
+                int px = x + width - radius + dx;
+                int py = y + radius - dy;
+                if (px >= 0 && px < image->width && py >= 0 && py < image->height)
+                {
+                    if (image->is_grayscale)
+                    {
+                        image->gray_pixels[py * image->width + px] = (color >> 24) & 0xFF;
+                    }
+                    else if (image->rgba_pixels)
+                    {
+                        image->rgba_pixels[py * image->width + px] = color;
+                    }
+                }
+            }
+        }
+    }
+
+    // Bottom-left corner
+    for (int dy = 0; dy <= radius; dy++)
+    {
+        for (int dx = 0; dx <= radius; dx++)
+        {
+            if (dx * dx + dy * dy <= radius * radius)
+            {
+                int px = x + radius - dx;
+                int py = y + height - radius + dy;
+                if (px >= 0 && px < image->width && py >= 0 && py < image->height)
+                {
+                    if (image->is_grayscale)
+                    {
+                        image->gray_pixels[py * image->width + px] = (color >> 24) & 0xFF;
+                    }
+                    else if (image->rgba_pixels)
+                    {
+                        image->rgba_pixels[py * image->width + px] = color;
+                    }
+                }
+            }
+        }
+    }
+
+    // Bottom-right corner
+    for (int dy = 0; dy <= radius; dy++)
+    {
+        for (int dx = 0; dx <= radius; dx++)
+        {
+            if (dx * dx + dy * dy <= radius * radius)
+            {
+                int px = x + width - radius + dx;
+                int py = y + height - radius + dy;
+                if (px >= 0 && px < image->width && py >= 0 && py < image->height)
+                {
+                    if (image->is_grayscale)
+                    {
+                        image->gray_pixels[py * image->width + px] = (color >> 24) & 0xFF;
+                    }
+                    else if (image->rgba_pixels)
+                    {
+                        image->rgba_pixels[py * image->width + px] = color;
+                    }
+                }
+            }
+        }
+    }
 }

@@ -67,15 +67,12 @@ Tensor* tensor_from_data(float* data, int* shape, int ndim) {
 
 
 static void tensor_print_recursive(const Tensor* tensor, int* strides, int* indices, int current_dim, int offset) {
-    const int max_display_dims = 4;
-
     if (current_dim == tensor->ndim) {
         printf("%.4f", tensor->data[offset]);
         return;
     }
 
     int dim_size = tensor->shape[current_dim];
-    int display_limit = (current_dim < 2) ? max_display_dims : 2;
 
     printf("[");
 
@@ -83,12 +80,6 @@ static void tensor_print_recursive(const Tensor* tensor, int* strides, int* indi
         if (i > 0) {
             if (current_dim == 0) printf(",\n ");
             else printf(", ");
-        }
-
-        if (dim_size > display_limit && i == display_limit / 2) {
-            printf("...");
-            i = dim_size - display_limit / 2 - 1;
-            continue;
         }
 
         indices[current_dim] = i;
@@ -613,11 +604,9 @@ static inline float _mm256_reduce_add_ps(__m256 v) {
     return _mm_cvtss_f32(vlow);
 }
 
-// SIMD matrix multiplication: C = alpha * A * B + beta * C
-// A is m x k, B is k x n, C is m x n
+
 static void tensor_sgemm_simd(int m, int n, int k, float alpha, const float* A, int lda,
                               const float* B, int ldb, float beta, float* C, int ldc) {
-    // Initialize C with beta * C if beta != 0, or zero it out
     if (beta == 0.0f) {
         memset(C, 0, sizeof(float) * m * ldc);
     } else if (beta != 1.0f) {
@@ -628,17 +617,15 @@ static void tensor_sgemm_simd(int m, int n, int k, float alpha, const float* A, 
         }
     }
 
-    // If alpha is 0, we're done
     if (alpha == 0.0f) return;
 
-    // Simple SIMD implementation: process one row of C at a time
+    // Process one row of C at a time
     for (int i = 0; i < m; i++) {
         for (int j = 0; j < n; j++) {
             float sum = 0.0f;
             const float* a_ptr = &A[i * lda];
             const float* b_ptr = &B[j];
 
-            // Use SIMD for the inner loop when possible
             int l = 0;
             __m256 sum_vec = _mm256_setzero_ps();
 
@@ -651,10 +638,8 @@ static void tensor_sgemm_simd(int m, int n, int k, float alpha, const float* A, 
                 sum_vec = _mm256_fmadd_ps(a_vec, b_vec, sum_vec);
             }
 
-            // Horizontal sum of the SIMD result
             sum += _mm256_reduce_add_ps(sum_vec);
 
-            // Handle remaining elements
             for (; l < k; l++) {
                 sum += a_ptr[l] * b_ptr[l * ldb];
             }
@@ -783,12 +768,10 @@ Tensor* tensor_transpose(const Tensor* tensor) {
         return NULL;
     }
 
-    // Create new shape with dimensions swapped
     int new_shape[2] = {tensor->shape[1], tensor->shape[0]};
     Tensor* result = tensor_create(new_shape, 2);
     if (!result) return NULL;
 
-    // Transpose the data
     int rows = tensor->shape[0];
     int cols = tensor->shape[1];
 
@@ -807,7 +790,6 @@ void tensor_scale_inplace(Tensor* tensor, float scale) {
     int size = tensor->size;
     float* data = tensor->data;
 
-    // Use SIMD for scaling if AVX2 is available
     int i = 0;
     __m256 scale_vec = _mm256_set1_ps(scale);
 
@@ -817,7 +799,6 @@ void tensor_scale_inplace(Tensor* tensor, float scale) {
         _mm256_storeu_ps(&data[i], vec);
     }
 
-    // Handle remaining elements
     for (; i < size; i++) {
         data[i] *= scale;
     }
@@ -829,4 +810,61 @@ void tensor_free(Tensor* tensor) {
         free(tensor->shape);
         free(tensor);
     }
+}
+
+int tensor_save_binary(const Tensor* tensor, FILE* f) {
+    if (!tensor || !f) return 0;
+
+    if (fwrite(&tensor->size, sizeof(int), 1, f) != 1) return 0;
+    if (fwrite(&tensor->ndim, sizeof(int), 1, f) != 1) return 0;
+
+    // Write shape array
+    if (fwrite(tensor->shape, sizeof(int), tensor->ndim, f) != (size_t)tensor->ndim) return 0;
+
+    // Write data array
+    if (fwrite(tensor->data, sizeof(float), tensor->size, f) != (size_t)tensor->size) return 0;
+
+    return 1;
+}
+
+int tensor_load_binary(Tensor* tensor, FILE* f) {
+    if (!tensor || !f) return 0;
+
+    // Read tensor metadata
+    int size, ndim;
+    if (fread(&size, sizeof(int), 1, f) != 1) return 0;
+    if (fread(&ndim, sizeof(int), 1, f) != 1) return 0;
+
+    // Check if tensor dimensions match
+    if (tensor->size != size || tensor->ndim != ndim) {
+        fprintf(stderr, "Tensor dimensions don't match: expected size=%d ndim=%d, got size=%d ndim=%d\n",
+                tensor->size, tensor->ndim, size, ndim);
+        return 0;
+    }
+
+    // Read and validate shape
+    int* shape = (int*)malloc(sizeof(int) * ndim);
+    if (!shape) return 0;
+
+    if (fread(shape, sizeof(int), ndim, f) != (size_t)ndim) {
+        free(shape);
+        return 0;
+    }
+
+    // Check if shape matches
+    for (int i = 0; i < ndim; i++) {
+        if (tensor->shape[i] != shape[i]) {
+            fprintf(stderr, "Tensor shape doesn't match at dimension %d: expected %d, got %d\n",
+                    i, tensor->shape[i], shape[i]);
+            free(shape);
+            return 0;
+        }
+    }
+
+    free(shape);
+
+    // Read data
+    if (fread(tensor->data, sizeof(float), size, f) != (size_t)size) return 0;
+
+    return 1;
 }

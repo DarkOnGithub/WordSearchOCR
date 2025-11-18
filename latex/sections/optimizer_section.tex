@@ -1,0 +1,78 @@
+\section{Optimisation du modèle : l'optimiseur AdamW}
+
+\subsection{Le rôle d'un optimiseur dans l'entraînement}
+Une fois l'architecture du réseau définie et la fonction de perte calculée, le processus d'apprentissage du modèle commence. Ce processus est itératif : le réseau traite un lot de données, effectue une prédiction, et compare cette prédiction à la vérité via la fonction de perte. Cette perte quantifie l'erreur du modèle. L'objectif de l'entraînement est de minimiser cette erreur en ajustant les paramètres (poids et biais) du réseau.
+
+C'est ici qu'intervient l'optimiseur. Un \textbf{optimiseur} est un algorithme qui modifie les attributs du réseau neuronal, tels que les poids et le taux d'apprentissage, afin de réduire les pertes. Il utilise le gradient de la fonction de perte par rapport à chaque paramètre (calculé lors de la passe arrière) pour déterminer la direction dans laquelle ajuster ces paramètres. Pour mieux comprendre son rôle, on peut décomposer le problème de la manière suivante :
+\begin{itemize}
+    \item \textbf{L'espace des paramètres :} Un réseau de neurones contient des millions de paramètres (poids et biais). On peut imaginer un espace abstrait où chaque dimension correspond à un seul de ces paramètres. En raison du grand nombre de paramètres, cet espace est dit "de haute dimension".
+    \item \textbf{Une configuration = un point :} Une configuration spécifique du modèle, c'est-à-dire une valeur donnée pour chaque poids et chaque biais du réseau, correspond à un unique point dans cet espace de haute dimension.
+    \item \textbf{L'erreur pour chaque configuration :} Pour n'importe lequel de ces points (donc pour n'importe quelle configuration des poids), nous pouvons calculer l'erreur du modèle en lui faisant traiter les données d'entraînement et en évaluant la fonction de perte. Cette erreur est une valeur numérique unique.
+\end{itemize}
+Le but de l'optimiseur est donc d'explorer cet immense espace de configurations possibles pour trouver le point qui correspond à la plus faible erreur possible (le minimum de la fonction de perte). Le terme "paysage de perte" est une conceptualisation de cette idée : c'est une surface de haute dimension où la position est déterminée par les poids du modèle, et "l'altitude" à chaque position est déterminée par l'erreur. Le travail de l'optimiseur est de trouver la "vallée" la plus profonde de ce paysage.
+
+Le choix de l'optimiseur est crucial car il détermine non seulement la vitesse de convergence du modèle, mais aussi sa performance finale. Pour notre projet, nous avons choisi \textbf{AdamW}, une évolution de l'optimiseur Adam, reconnue pour sa robustesse et son efficacité.
+
+\subsection{Adam (Adaptive Moment Estimation)}
+L'optimiseur Adam est une méthode de descente de gradient stochastique populaire due à son efficacité. Il combine deux techniques pour améliorer la convergence :
+
+\begin{itemize}
+    \item \textbf{Momentum :} Cette technique vise à accélérer la convergence. Au lieu de se baser uniquement sur le gradient du lot actuel pour mettre à jour les poids, le momentum accumule une moyenne mobile exponentielle des gradients passés. Ce vecteur de "momentum" pousse les mises à jour dans une direction persistante à travers les itérations, ce qui aide à progresser plus rapidement dans les directions de gradient stable et à amortir les oscillations dans les directions où le gradient change fréquemment.
+
+    \item \textbf{Taux d'apprentissage adaptatif (inspiré de RMSprop) :} Cette technique ajuste le taux d'apprentissage pour chaque paramètre individuellement. Elle maintient une moyenne mobile du carré des gradients. Les paramètres qui reçoivent des gradients de grande magnitude verront leur taux d'apprentissage effectif réduit, tandis que ceux avec des gradients de faible magnitude auront un taux d'apprentissage plus élevé. Cela permet de prendre des mesures prudentes pour les paramètres sensibles et des mesures plus audacieuses pour les paramètres moins sensibles.
+\end{itemize}
+
+Adam fusionne ces deux concepts en maintenant une estimation du premier moment (la moyenne, comme le momentum) et du second moment (la variance non centrée, comme RMSprop) des gradients pour calculer des mises à jour de poids efficaces et bien adaptées.
+
+\subsection{Le problème de la régularisation L2 dans Adam}
+
+\paragraph{Décroissance de poids et régularisation L2.} Pour éviter le surapprentissage, on utilise des techniques de régularisation. La \textbf{régularisation L2} consiste à ajouter un terme de pénalité à la fonction de perte, proportionnel au carré de la magnitude des poids :
+\[ L_{total} = L_{original} + \frac{\lambda}{2} \sum_i w_i^2 \]
+où \(\lambda\) est le coefficient de régularisation. Ce terme a pour effet d'ajouter une composante \( \lambda w_i \) au gradient de chaque poids, ce qui les pousse à décroître vers zéro. C'est ce qu'on appelle la \textbf{décroissance de poids} (\textit{weight decay}). Cela favorise les modèles avec des poids plus petits, qui sont souvent plus simples et généralisent mieux.
+
+\paragraph{Le couplage indésirable.} Pendant longtemps, la régularisation L2 et la décroissance de poids ont été traitées comme interchangeables. Cependant, dans les optimiseurs adaptatifs comme Adam, cette équivalence est rompue. Lorsque la régularisation L2 est ajoutée à la fonction de perte, son gradient (\(\lambda w_i\)) est inclus dans le calcul global du gradient. Par conséquent, il est normalisé par le second moment (le terme RMSprop) de l'optimiseur Adam.
+
+Le résultat est que la force de la décroissance de poids devient dépendante de l'historique des gradients d'un poids. Les poids qui ont eu des gradients élevés par le passé se voient appliquer une décroissance de poids \textit{plus faible} que ceux qui ont eu de faibles gradients. Cet effet de couplage affaiblit l'efficacité de la régularisation, car elle n'est plus appliquée uniformément comme prévu.
+
+\subsection{AdamW : Le découplage pour une meilleure régularisation}
+
+L'optimiseur AdamW (Adam with Decoupled Weight Decay) a été proposé pour corriger cette interaction non désirée. L'idée fondamentale est que la décroissance de poids est une forme de régularisation qui doit être indépendante du processus d'optimisation du gradient.
+
+La solution consiste à découpler les deux mécanismes. La décroissance de poids est retirée du calcul du gradient (le terme de régularisation L2 n'est pas ajouté à la perte). Elle est appliquée directement lors de l'étape de mise à jour des poids :
+\[ w_{t+1} \leftarrow w_{t} - \eta \cdot \text{update}_t - \eta \lambda w_t \]
+Dans cette formulation, l'étape de mise à jour de l'optimiseur Adam (\(\text{update}_t\)) et la décroissance de poids (\(\lambda w_t\)) sont deux termes distincts. En découplant les deux processus, AdamW garantit que la décroissance de poids agit comme une force de régularisation constante et prévisible, telle qu'elle a été conçue à l'origine. Cette approche s'est avérée plus efficace, menant souvent à une meilleure généralisation du modèle et à de meilleures performances finales.
+
+\subsection{L'algorithme AdamW en détail}
+
+Le pseudocode ci-dessous illustre le mécanisme interne d'AdamW, mettant en évidence la séparation entre la mise à jour des poids basée sur le gradient et l'étape de décroissance de poids.
+
+\begin{algorithm}[H]
+    \caption{Pseudocode de l'optimiseur AdamW.}
+    \label{alg:adamw_algo}
+    \begin{algorithmic}[1]
+        \Require $\eta$ (Taux d'apprentissage global)
+        \Require $\lambda$ (Taux de décroissance de poids)
+        \Require $\beta_1, \beta_2 \in [0, 1)$ (Facteurs d'amortissement des moments)
+        \Require $\theta_0$ (Paramètres initiaux)
+
+        \Statex
+        \State \textbf{Initialisation :}
+        \State $m_0 \leftarrow 0$ \Comment{Vecteur du premier moment}
+        \State $v_0 \leftarrow 0$ \Comment{Vecteur du second moment}
+        \State $t \leftarrow 0$ \Comment{Compteur de pas de temps}
+        \Statex
+        \While{$\theta_t$ n'a pas convergé}
+            \State $t \leftarrow t + 1$
+            \State $g_t \leftarrow \nabla_{\theta} L_t(\theta_{t-1})$ \Comment{Obtenir le gradient}
+            \State $m_t \leftarrow \beta_1 m_{t-1} + (1 - \beta_1) g_t$ \Comment{Mise à jour du premier moment}
+            \State $v_t \leftarrow \beta_2 v_{t-1} + (1 - \beta_2) g_t^2$ \Comment{Mise à jour du second moment}
+            \State $\hat{m}_t \leftarrow m_t / (1 - \beta_1^t)$ \Comment{Correction du biais}
+            \State $\hat{v}_t \leftarrow v_t / (1 - \beta_2^t)$ \Comment{Correction du biais}
+            \State $\theta_t \leftarrow \theta_{t-1} - \eta \lambda \theta_{t-1}$ \Comment{\textbf{Décroissance de poids découplée}}
+            \State $\theta_t \leftarrow \theta_t - \eta \left( \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon} \right)$ \Comment{Mise à jour des poids}
+        \EndWhile
+        \State \Return $\theta_t$ \Comment{Les paramètres optimisés}
+    \end{algorithmic}
+\end{algorithm}
+\mynote{\small\textit{Le pseudocode présenté applique la décroissance de poids avant la mise à jour du gradient. Dans certaines implémentations, l'ordre est inversé. Bien que cela puisse avoir un impact subtil sur le taux d'apprentissage effectif pour les poids, le concept fondamental du découplage est préservé.}}
+

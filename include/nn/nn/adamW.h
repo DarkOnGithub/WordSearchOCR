@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdio.h>
 #include "nn/core/tensor.h"
 
 // Adam optimizer state for a single parameter
@@ -46,3 +47,9 @@ float adam_get_learning_rate(Adam* optimizer);
 void adam_set_learning_rate(Adam* optimizer, float lr);
 void adam_set_max_grad_norm(Adam* optimizer, float max_norm);
 int adam_get_num_params(Adam* optimizer);
+float adam_get_beta1(Adam* optimizer);
+float adam_get_beta2(Adam* optimizer);
+float adam_get_epsilon(Adam* optimizer);
+float adam_get_weight_decay(Adam* optimizer);
+int adam_get_t(Adam* optimizer);
+

@@ -11,12 +11,18 @@ static float random_normal() {
 }
 
 void init_xavier_uniform(Tensor* tensor) {
-    if (tensor->ndim != 2) {
+    int fan_in, fan_out;
+
+    if (tensor->ndim == 2) {
+        fan_in = tensor->shape[1];
+        fan_out = tensor->shape[0];
+    } else if (tensor->ndim == 4) {
+        fan_in = tensor->shape[1] * tensor->shape[2] * tensor->shape[3];
+        fan_out = tensor->shape[0];
+    } else {
         return;
     }
 
-    int fan_in = tensor->shape[1];
-    int fan_out = tensor->shape[0];
     float limit = sqrtf(6.0f / (fan_in + fan_out));
 
     for (int i = 0; i < tensor->size; i++) {

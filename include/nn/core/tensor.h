@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdio.h>
+
 typedef struct {
     float *data;
     int* shape;
@@ -36,3 +38,6 @@ Tensor* tensor_sum_axis(const Tensor* tensor, int axis);
 void tensor_outer_product_accumulate(Tensor* result, const Tensor* a, const Tensor* b);
 Tensor* tensor_transpose(const Tensor* tensor);
 void tensor_scale_inplace(Tensor* tensor, float scale);
+
+int tensor_save_binary(const Tensor* tensor, FILE* f);
+int tensor_load_binary(Tensor* tensor, FILE* f);

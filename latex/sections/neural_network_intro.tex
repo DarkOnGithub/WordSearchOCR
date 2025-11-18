@@ -1,0 +1,7 @@
+\section{Réseau de neurone pour la reconnaissance de caractères}
+
+Pour la reconnaissance de caractères, nous utiliserons un réseau de neurones convolutif (CNN).\\
+Un CNN est un type de réseau de neurones spécialement conçu pour le traitement d'images. Sa structure s'inspire du cortex visuel animal. Il utilise des couches de convolution pour extraire des caractéristiques hiérarchiques des images, comme les contours, les formes, puis des objets plus complexes. Ces couches sont suivies de couches de pooling, qui réduisent la taille des données pour en conserver les informations essentielles. Finalement, des couches entièrement connectées, similaires à celles d'un réseau de neurones classique, effectuent la classification finale pour identifier le caractère. Cette architecture rend les CNN particulièrement performants pour la reconnaissance de motifs dans les images.
+\newline\newline
+\mynote{\small\textit{Pour accélérer les calculs intensifs de notre réseau de neurones, nous exploitons les instructions SIMD (Single Instruction, Multiple Data). Le principe du SIMD est d'effectuer une seule opération sur plusieurs données simultanément. Les processeurs modernes disposent de registres spéciaux pouvant contenir des vecteurs de données (par exemple, 8 nombres flottants). Une seule instruction SIMD peut alors additionner ou multiplier tous ces nombres en un seul cycle d'horloge. L'utilisation de ces instructions, notamment via les intrinsèques AVX2, permet de paralléliser les calculs au plus bas niveau et d'obtenir des gains de performance considérables.}}
+

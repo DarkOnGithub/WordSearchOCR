@@ -262,15 +262,19 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
         return NULL;
     }
 
-    // Check that we have exactly 26 classes (a-z, 0-based)
-    if (min_class != 0 || max_class != 25) {
-        printf("Error: Expected classes 0-25 (a-z, 0-based), but found range %d-%d\n", min_class, max_class);
+    // Check class range - allow subsets for testing/validation
+    if (min_class < 0 || max_class > 25) {
+        printf("Error: Invalid class range %d-%d (expected 0-25)\n", min_class, max_class);
         free(image_data);
         free(label_data);
         return NULL;
     }
 
-    printf("✓ Confirmed: Dataset contains exactly 26 classes (a-z, 0-based)\n");
+    if (min_class == 0 && max_class == 25) {
+        printf("✓ Dataset contains all 26 classes (a-z, 0-based)\n");
+    } else {
+        printf("✓ Dataset contains classes %d-%d (subset of a-z)\n", min_class, max_class);
+    }
 
     // Limit samples if max_samples is specified and positive
     int final_sample_count = filtered_count;
@@ -297,7 +301,6 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
             memcpy(&filtered_images[filtered_idx * IMAGE_SIZE],
                    &image_data[i * IMAGE_SIZE],
                    IMAGE_SIZE);
-            printf("Label %d: %d\n", filtered_idx, label);
             filtered_labels[filtered_idx] = label;  // Labels are already 0-25
 
             filtered_idx++;

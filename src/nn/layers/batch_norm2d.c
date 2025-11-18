@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include <immintrin.h>  // For SIMD operations
+#include <immintrin.h>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -24,9 +24,8 @@ BatchNorm2D* batch_norm2d_create(int num_features, float momentum, float epsilon
     layer->num_features = num_features;
     layer->momentum = momentum;
     layer->epsilon = epsilon;
-    layer->training = 1;  // Default to training mode
+    layer->training = 1;
 
-    // Parameters: gamma and beta, shape [num_features]
     int param_shape[1] = {num_features};
 
     // Initialize gamma to 1.0 and beta to 0.0
@@ -52,6 +51,7 @@ BatchNorm2D* batch_norm2d_create(int num_features, float momentum, float epsilon
     layer->normalized_cache = NULL;
     layer->std_cache = NULL;
     layer->var_cache = NULL;
+    layer->mean_cache = NULL;
 
     return layer;
 }
@@ -68,6 +68,7 @@ void batch_norm2d_free(BatchNorm2D* layer) {
     if (layer->normalized_cache) tensor_free(layer->normalized_cache);
     if (layer->std_cache) tensor_free(layer->std_cache);
     if (layer->var_cache) tensor_free(layer->var_cache);
+    if (layer->mean_cache) tensor_free(layer->mean_cache);
 
     free(layer);
 }
@@ -88,9 +89,6 @@ void batch_norm2d_set_training(BatchNorm2D* layer, int training) {
     layer->training = training;
 }
 
-// Helper function to compute mean and variance for BatchNorm2D
-// Input shape: [batch_size, num_features, height, width]
-// We compute statistics across batch_size, height, width for each feature
 static inline void batch_norm2d_compute_mean_var(const float* input, int batch_size,
                                                int num_features, int height, int width,
                                                float* mean, float* var) {
@@ -100,7 +98,6 @@ static inline void batch_norm2d_compute_mean_var(const float* input, int batch_s
         double sum_sq = 0.0;
         int count = 0;
 
-        // Compute mean and variance across batch, height, width for this channel
         for (int b = 0; b < batch_size; ++b) {
             for (int h = 0; h < height; ++h) {
                 for (int w = 0; w < width; ++w) {
@@ -118,7 +115,6 @@ static inline void batch_norm2d_compute_mean_var(const float* input, int batch_s
     }
 }
 
-// SIMD version for normalization
 static inline void batch_norm2d_normalize_simd(float* output, const float* input,
                                              const float* mean, const float* std,
                                              int batch_size, int num_features,
@@ -132,7 +128,6 @@ static inline void batch_norm2d_normalize_simd(float* output, const float* input
             int base_idx = (b * num_features + c) * spatial_size;
 
             int hw = 0;
-            // SIMD normalization for spatial dimensions
             for (; hw <= spatial_size - 8; hw += 8) {
                 __m256 input_vec = _mm256_loadu_ps(&input[base_idx + hw]);
                 __m256 mean_vec = _mm256_set1_ps(mean_val);
@@ -142,7 +137,6 @@ static inline void batch_norm2d_normalize_simd(float* output, const float* input
                 _mm256_storeu_ps(&output[base_idx + hw], normalized);
             }
 
-            // Handle remaining elements
             for (; hw < spatial_size; ++hw) {
                 output[base_idx + hw] = (input[base_idx + hw] - mean_val) / std_val;
             }
@@ -153,7 +147,6 @@ static inline void batch_norm2d_normalize_simd(float* output, const float* input
 BatchNorm2DOutput* batch_norm2d_forward(BatchNorm2D* layer, Tensor* input) {
     if (!layer || !input) return NULL;
 
-    // Input should be 4D: [batch_size, num_features, height, width]
     if (input->ndim != 4 || input->shape[1] != layer->num_features) {
         printf("Error: Input tensor must be 4D with num_features %d\n", layer->num_features);
         return NULL;
@@ -164,12 +157,10 @@ BatchNorm2DOutput* batch_norm2d_forward(BatchNorm2D* layer, Tensor* input) {
     int height = input->shape[2];
     int width = input->shape[3];
 
-    // Create output tensor with same shape
     int output_shape[4] = {batch_size, num_features, height, width};
     Tensor* output = tensor_create(output_shape, 4);
     if (!output) return NULL;
 
-    // Allocate temporary buffers for mean and variance
     float* batch_mean = (float*)malloc(num_features * sizeof(float));
     float* batch_var = (float*)malloc(num_features * sizeof(float));
     float* batch_std = (float*)malloc(num_features * sizeof(float));
@@ -183,20 +174,17 @@ BatchNorm2DOutput* batch_norm2d_forward(BatchNorm2D* layer, Tensor* input) {
     }
 
     if (layer->training) {
-        // Compute batch statistics
         batch_norm2d_compute_mean_var(input->data, batch_size, num_features, height, width,
                                     batch_mean, batch_var);
 
-        // Update running statistics
         #pragma omp parallel for schedule(static) if (num_features > 4)
         for (int c = 0; c < num_features; ++c) {
-            layer->running_mean->data[c] = layer->momentum * layer->running_mean->data[c] +
-                                          (1.0f - layer->momentum) * batch_mean[c];
-            layer->running_var->data[c] = layer->momentum * layer->running_var->data[c] +
-                                         (1.0f - layer->momentum) * batch_var[c];
+            layer->running_mean->data[c] = (1.0f - layer->momentum) * layer->running_mean->data[c] +
+                                          layer->momentum * batch_mean[c];
+            layer->running_var->data[c] = (1.0f - layer->momentum) * layer->running_var->data[c] +
+                                         layer->momentum * batch_var[c];
         }
 
-        // Cache input for backward pass
         if (layer->input_cache) tensor_free(layer->input_cache);
         layer->input_cache = tensor_create(input->shape, input->ndim);
         if (layer->input_cache) {
@@ -204,19 +192,22 @@ BatchNorm2DOutput* batch_norm2d_forward(BatchNorm2D* layer, Tensor* input) {
         }
 
     } else {
-        // Use running statistics
         memcpy(batch_mean, layer->running_mean->data, num_features * sizeof(float));
         memcpy(batch_var, layer->running_var->data, num_features * sizeof(float));
     }
 
-    // Compute standard deviation
     #pragma omp parallel for schedule(static) if (num_features > 4)
     for (int c = 0; c < num_features; ++c) {
         batch_std[c] = sqrtf(batch_var[c] + layer->epsilon);
     }
 
-    // Cache statistics for backward pass (only in training mode)
     if (layer->training) {
+        if (layer->mean_cache) tensor_free(layer->mean_cache);
+        layer->mean_cache = tensor_create(&num_features, 1);
+        if (layer->mean_cache) {
+            memcpy(layer->mean_cache->data, batch_mean, num_features * sizeof(float));
+        }
+
         if (layer->var_cache) tensor_free(layer->var_cache);
         layer->var_cache = tensor_create(&num_features, 1);
         if (layer->var_cache) {
@@ -230,11 +221,9 @@ BatchNorm2DOutput* batch_norm2d_forward(BatchNorm2D* layer, Tensor* input) {
         }
     }
 
-    // Normalize
     batch_norm2d_normalize_simd(output->data, input->data, batch_mean, batch_std,
                               batch_size, num_features, height, width);
 
-    // Cache normalized output (x_hat) for backward pass
     if (layer->training) {
         if (layer->normalized_cache) tensor_free(layer->normalized_cache);
         layer->normalized_cache = tensor_create(output->shape, output->ndim);
@@ -243,7 +232,6 @@ BatchNorm2DOutput* batch_norm2d_forward(BatchNorm2D* layer, Tensor* input) {
         }
     }
 
-    // Apply scale (gamma) and shift (beta)
     #pragma omp parallel for collapse(2) schedule(static) if (batch_size * num_features > 4)
     for (int b = 0; b < batch_size; ++b) {
         for (int c = 0; c < num_features; ++c) {
@@ -276,7 +264,6 @@ BatchNorm2DOutput* batch_norm2d_forward(BatchNorm2D* layer, Tensor* input) {
 BatchNorm2DBackwardOutput* batch_norm2d_backward(BatchNorm2D* layer, BatchNorm2DOutput* forward_result, Tensor* output_grad) {
     if (!layer || !forward_result || !output_grad || !layer->training) return NULL;
 
-    // Input should be 4D: [batch_size, num_features, height, width]
     if (output_grad->ndim != 4 || output_grad->shape[1] != layer->num_features) {
         fprintf(stderr, "BatchNorm2D backward: output_grad must be 4D with correct num_features\n");
         return NULL;
@@ -288,15 +275,12 @@ BatchNorm2DBackwardOutput* batch_norm2d_backward(BatchNorm2D* layer, BatchNorm2D
     int width = output_grad->shape[3];
     int spatial_size = height * width;
 
-    // Create input gradient tensor
     int input_grad_shape[4] = {batch_size, num_features, height, width};
     Tensor* input_grad = tensor_create(input_grad_shape, 4);
     if (!input_grad) return NULL;
 
-    // Get gamma (scale) parameter
     const float* gamma = layer->layer_grad->weights->data;
 
-    // Compute gradients w.r.t. gamma and beta
     float* gamma_grad = (float*)calloc(num_features, sizeof(float));
     float* beta_grad = (float*)calloc(num_features, sizeof(float));
     if (!gamma_grad || !beta_grad) {
@@ -306,7 +290,6 @@ BatchNorm2DBackwardOutput* batch_norm2d_backward(BatchNorm2D* layer, BatchNorm2D
         return NULL;
     }
 
-    // Compute gamma and beta gradients
     for (int b = 0; b < batch_size; ++b) {
         for (int c = 0; c < num_features; ++c) {
             int base_idx = (b * num_features + c) * spatial_size;
@@ -319,20 +302,17 @@ BatchNorm2DBackwardOutput* batch_norm2d_backward(BatchNorm2D* layer, BatchNorm2D
         }
     }
 
-    // Store gradients in the layer
     memcpy(layer->layer_grad->weight_grad->data, gamma_grad, num_features * sizeof(float));
     memcpy(layer->layer_grad->bias_grad->data, beta_grad, num_features * sizeof(float));
 
-    // Compute input gradient using correct batch normalization derivatives
     const float* std_data = layer->std_cache->data;
     const float* var_data = layer->var_cache->data;
+    const float* mean_data = layer->mean_cache->data;
     const float* input_data = layer->input_cache->data;
 
-    // Total number of elements per feature (batch_size * height * width)
     int m = batch_size * spatial_size;
     float inv_m = 1.0f / m;
 
-    // Pre-compute common values for optimization
     float* dL_dvar = (float*)malloc(num_features * sizeof(float));
     float* dL_dmu = (float*)malloc(num_features * sizeof(float));
     if (!dL_dvar || !dL_dmu) {
@@ -344,7 +324,6 @@ BatchNorm2DBackwardOutput* batch_norm2d_backward(BatchNorm2D* layer, BatchNorm2D
         return NULL;
     }
 
-    // First pass: compute derivatives w.r.t. variance and mean for each feature
     for (int c = 0; c < num_features; ++c) {
         float gamma_val = gamma[c];
         float var_val = var_data[c];
@@ -352,16 +331,14 @@ BatchNorm2DBackwardOutput* batch_norm2d_backward(BatchNorm2D* layer, BatchNorm2D
         float std_val = std_data[c];
         float inv_std = 1.0f / std_val;
 
-        // Compute sums for this feature across all batches and spatial dimensions
         double sum_dx_hat = 0.0;
         double sum_dx_hat_x_minus_mu = 0.0;
         double sum_x_minus_mu = 0.0;
 
         for (int b = 0; b < batch_size; ++b) {
             int base_idx = (b * num_features + c) * spatial_size;
-            float mu_val = layer->running_mean->data[c];
+            float mu_val = mean_data[c];
 
-            // Process spatial dimensions (can be vectorized, but keeping simple for now)
             for (int hw = 0; hw < spatial_size; ++hw) {
                 float grad = output_grad->data[base_idx + hw];
                 float dx_hat = gamma_val * grad;
@@ -374,12 +351,10 @@ BatchNorm2DBackwardOutput* batch_norm2d_backward(BatchNorm2D* layer, BatchNorm2D
             }
         }
 
-        // Compute derivatives
         dL_dvar[c] = sum_dx_hat_x_minus_mu * (-0.5f) / (var_plus_eps * sqrtf(var_plus_eps));
         dL_dmu[c] = -sum_dx_hat * inv_std + dL_dvar[c] * (-2.0f * sum_x_minus_mu) * inv_m;
     }
 
-    // Second pass: compute input gradients using SIMD
     for (int b = 0; b < batch_size; ++b) {
         for (int c = 0; c < num_features; ++c) {
             float gamma_val = gamma[c];
@@ -389,35 +364,28 @@ BatchNorm2DBackwardOutput* batch_norm2d_backward(BatchNorm2D* layer, BatchNorm2D
             float dmu_term = inv_m * dL_dmu[c];
 
             int base_idx = (b * num_features + c) * spatial_size;
-            float mu_val = layer->running_mean->data[c];
+            float mu_val = mean_data[c];
 
-            // SIMD processing for spatial dimensions
             int hw = 0;
             for (; hw <= spatial_size - 8; hw += 8) {
-                // Load gradients and input values
                 __m256 grad_vec = _mm256_loadu_ps(&output_grad->data[base_idx + hw]);
                 __m256 x_vec = _mm256_loadu_ps(&input_data[base_idx + hw]);
 
-                // Compute dx_hat = gamma * grad
                 __m256 gamma_vec = _mm256_set1_ps(gamma_val);
                 __m256 dx_hat_vec = _mm256_mul_ps(gamma_vec, grad_vec);
 
-                // Compute x - mu
                 __m256 mu_vec = _mm256_set1_ps(mu_val);
                 __m256 x_minus_mu_vec = _mm256_sub_ps(x_vec, mu_vec);
 
-                // Gradient terms
                 __m256 grad_term1_vec = _mm256_mul_ps(dx_hat_vec, _mm256_set1_ps(inv_std));
                 __m256 grad_term2_vec = _mm256_mul_ps(_mm256_set1_ps(dvar_term), x_minus_mu_vec);
                 __m256 grad_term3_vec = _mm256_set1_ps(dmu_term);
 
-                // Sum all gradient terms
                 __m256 result_vec = _mm256_add_ps(_mm256_add_ps(grad_term1_vec, grad_term2_vec), grad_term3_vec);
 
                 _mm256_storeu_ps(&input_grad->data[base_idx + hw], result_vec);
             }
 
-            // Handle remaining elements
             for (; hw < spatial_size; ++hw) {
                 float grad = output_grad->data[base_idx + hw];
                 float dx_hat = gamma_val * grad;

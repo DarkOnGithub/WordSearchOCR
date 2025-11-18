@@ -8,6 +8,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <stdint.h>
 
 typedef struct timespec TimingType;
 #define GET_TIME(t) clock_gettime(CLOCK_MONOTONIC, &(t))
@@ -60,6 +61,7 @@ CNN* cnn_create() {
     model->conv1_1x1 = conv2D_create(32, 64, 1, 1, 0);     // 32->64, 1x1, stride=1, padding=0
     model->bn1_1x1 = batch_norm2d_create(64, 0.1f, 1e-5f); // Batch norm for 64 channels
     model->shortcut1 = conv2D_create(1, 64, 1, 1, 0);      // 1->64, 1x1 shortcut
+    model->bn_shortcut1 = batch_norm2d_create(64, 0.1f, 1e-5f); // Batch norm for shortcut1 (matches PyTorch)
 
     // Block 2: 3x3 -> 1x1 with residual
     model->conv2_3x3 = conv2D_create(64, 64, 3, 1, 1);     // 64->64, 3x3, stride=1, padding=1
@@ -67,6 +69,7 @@ CNN* cnn_create() {
     model->conv2_1x1 = conv2D_create(64, 128, 1, 1, 0);    // 64->128, 1x1, stride=1, padding=0
     model->bn2_1x1 = batch_norm2d_create(128, 0.1f, 1e-5f);// Batch norm for 128 channels
     model->shortcut2 = conv2D_create(64, 128, 1, 1, 0);    // 64->128, 1x1 shortcut
+    model->bn_shortcut2 = batch_norm2d_create(128, 0.1f, 1e-5f); // Batch norm for shortcut2 (matches PyTorch)
 
     // Block 3: 3x3 -> 1x1 with residual
     model->conv3_3x3 = conv2D_create(128, 128, 3, 1, 1);   // 128->128, 3x3, stride=1, padding=1
@@ -74,6 +77,7 @@ CNN* cnn_create() {
     model->conv3_1x1 = conv2D_create(128, 256, 1, 1, 0);   // 128->256, 1x1, stride=1, padding=0
     model->bn3_1x1 = batch_norm2d_create(256, 0.1f, 1e-5f);// Batch norm for 256 channels
     model->shortcut3 = conv2D_create(128, 256, 1, 1, 0);   // 128->256, 1x1 shortcut
+    model->bn_shortcut3 = batch_norm2d_create(256, 0.1f, 1e-5f); // Batch norm for shortcut3 (matches PyTorch)
 
     // Pooling layers (only for blocks 1 and 2)
     model->pool1 = maxpool2d_create_simple(2, 2);         // 28x28 -> 14x14
@@ -102,41 +106,37 @@ CNN* cnn_create() {
 void cnn_free(CNN* model) {
     if (!model) return;
 
-    // Free convolutional layers and batch norms - Block 1
     conv2D_free(model->conv1_3x3);
     batch_norm2d_free(model->bn1_3x3);
     conv2D_free(model->conv1_1x1);
     batch_norm2d_free(model->bn1_1x1);
     conv2D_free(model->shortcut1);
+    batch_norm2d_free(model->bn_shortcut1);
 
-    // Free convolutional layers and batch norms - Block 2
     conv2D_free(model->conv2_3x3);
     batch_norm2d_free(model->bn2_3x3);
     conv2D_free(model->conv2_1x1);
     batch_norm2d_free(model->bn2_1x1);
     conv2D_free(model->shortcut2);
+    batch_norm2d_free(model->bn_shortcut2);
 
-    // Free convolutional layers and batch norms - Block 3
     conv2D_free(model->conv3_3x3);
     batch_norm2d_free(model->bn3_3x3);
     conv2D_free(model->conv3_1x1);
     batch_norm2d_free(model->bn3_1x1);
     conv2D_free(model->shortcut3);
+    batch_norm2d_free(model->bn_shortcut3);
 
-    // Free pooling layers
     maxpool2d_free(model->pool1);
     maxpool2d_free(model->pool2);
     adaptive_avg_pool2d_free(model->gap);
 
-    // Free dropout layers
     dropout2d_free(model->dropout_conv);
     dropout_free(model->dropout_fc);
 
-    // Free fully connected layers
     linear_free(model->fc1);
     linear_free(model->fc2);
 
-    // Free training components
     if (model->optimizer) adam_free(model->optimizer);
     if (model->scheduler) step_lr_free(model->scheduler);
     cross_entropy_loss_free(model->criterion);
@@ -146,26 +146,30 @@ void cnn_free(CNN* model) {
 
 void cnn_train(CNN* model) {
     model->training = true;
-    // Set batch norm layers to training mode
     batch_norm2d_set_training(model->bn1_3x3, true);
     batch_norm2d_set_training(model->bn1_1x1, true);
+    batch_norm2d_set_training(model->bn_shortcut1, true);
     batch_norm2d_set_training(model->bn2_3x3, true);
     batch_norm2d_set_training(model->bn2_1x1, true);
+    batch_norm2d_set_training(model->bn_shortcut2, true);
     batch_norm2d_set_training(model->bn3_3x3, true);
     batch_norm2d_set_training(model->bn3_1x1, true);
+    batch_norm2d_set_training(model->bn_shortcut3, true);
     model->dropout_conv->training = true;
     model->dropout_fc->training = true;
 }
 
 void cnn_eval(CNN* model) {
     model->training = false;
-    // Set batch norm layers to eval mode
     batch_norm2d_set_training(model->bn1_3x3, false);
     batch_norm2d_set_training(model->bn1_1x1, false);
+    batch_norm2d_set_training(model->bn_shortcut1, false);
     batch_norm2d_set_training(model->bn2_3x3, false);
     batch_norm2d_set_training(model->bn2_1x1, false);
+    batch_norm2d_set_training(model->bn_shortcut2, false);
     batch_norm2d_set_training(model->bn3_3x3, false);
     batch_norm2d_set_training(model->bn3_1x1, false);
+    batch_norm2d_set_training(model->bn_shortcut3, false);
     model->dropout_conv->training = false;
     model->dropout_fc->training = false;
 }
@@ -190,11 +194,11 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     // Shortcut path
     GET_TIME(start_op);
     result->shortcut1_out = conv2D_forward(model->shortcut1, input);
+    result->bn_shortcut1_result = batch_norm2d_forward(model->bn_shortcut1, result->shortcut1_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Shortcut1: %.3f ms\n", TIME_DIFF(start_op, end_op));
+        printf("Forward - Shortcut1 + BN: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
-
     // Main path: Conv3x3 -> BN -> SiLU -> Conv1x1 -> BN
     GET_TIME(start_op);
     result->conv1_3x3_out = conv2D_forward(model->conv1_3x3, input);
@@ -229,9 +233,9 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
 
     // Residual addition + activation
     GET_TIME(start_op);
-    Tensor* residual1_sum = tensor_add(result->residual1_out, result->shortcut1_out);
+    Tensor* residual1_sum = tensor_add(result->residual1_out, result->bn_shortcut1_result->output);
     result->silu1_residual = silu(residual1_sum);
-    tensor_free(residual1_sum);
+    result->residual1_sum = residual1_sum;  // Store for backward pass
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Forward - Residual1 + SiLU: %.3f ms\n", TIME_DIFF(start_op, end_op));
@@ -258,9 +262,10 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     // Shortcut path
     GET_TIME(start_op);
     result->shortcut2_out = conv2D_forward(model->shortcut2, result->dropout1_out);
+    result->bn_shortcut2_result = batch_norm2d_forward(model->bn_shortcut2, result->shortcut2_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Shortcut2: %.3f ms\n", TIME_DIFF(start_op, end_op));
+        printf("Forward - Shortcut2 + BN: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Main path: Conv3x3 -> BN -> SiLU -> Conv1x1 -> BN
@@ -296,9 +301,9 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
 
     // Residual addition + activation
     GET_TIME(start_op);
-    Tensor* residual2_sum = tensor_add(result->residual2_out, result->shortcut2_out);
+    Tensor* residual2_sum = tensor_add(result->residual2_out, result->bn_shortcut2_result->output);
     result->silu2_residual = silu(residual2_sum);
-    tensor_free(residual2_sum);
+    result->residual2_sum = residual2_sum;  // Store for backward pass
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Forward - Residual2 + SiLU: %.3f ms\n", TIME_DIFF(start_op, end_op));
@@ -325,9 +330,10 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
     // Shortcut path
     GET_TIME(start_op);
     result->shortcut3_out = conv2D_forward(model->shortcut3, result->dropout2_out);
+    result->bn_shortcut3_result = batch_norm2d_forward(model->bn_shortcut3, result->shortcut3_out);
     GET_TIME(end_op);
     if (model->timing_verbose) {
-        printf("Forward - Shortcut3: %.3f ms\n", TIME_DIFF(start_op, end_op));
+        printf("Forward - Shortcut3 + BN: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
     // Main path: Conv3x3 -> BN -> SiLU -> Conv1x1 -> BN
@@ -363,9 +369,9 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
 
     // Residual addition + activation
     GET_TIME(start_op);
-    Tensor* residual3_sum = tensor_add(result->residual3_out, result->shortcut3_out);
+    Tensor* residual3_sum = tensor_add(result->residual3_out, result->bn_shortcut3_result->output);
     result->silu3_residual = silu(residual3_sum);
-    tensor_free(residual3_sum);
+    result->residual3_sum = residual3_sum;  // Store for backward pass
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Forward - Residual3 + SiLU: %.3f ms\n", TIME_DIFF(start_op, end_op));
@@ -436,7 +442,6 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
 void cnn_forward_result_free(CNNForwardResult* result) {
     if (!result) return;
 
-    // Free Block 1 outputs
     tensor_free(result->conv1_3x3_out);
     result->conv1_3x3_out = NULL;
     if (result->bn1_3x3_result) {
@@ -450,16 +455,21 @@ void cnn_forward_result_free(CNNForwardResult* result) {
     if (result->bn1_1x1_result) {
         batch_norm2d_output_free(result->bn1_1x1_result);
         result->bn1_1x1_result = NULL;
-        result->residual1_out = NULL;  // This was freed by the batch norm free
+        result->residual1_out = NULL;  // This was already freed by the batch norm free
     }
     tensor_free(result->shortcut1_out);
     result->shortcut1_out = NULL;
+    if (result->bn_shortcut1_result) {
+        batch_norm2d_output_free(result->bn_shortcut1_result);
+        result->bn_shortcut1_result = NULL;
+    }
     tensor_free(result->silu1_residual);
     result->silu1_residual = NULL;
+    tensor_free(result->residual1_sum);
+    result->residual1_sum = NULL;
     maxpool2d_output_free(result->pool1_result);
     dropout2d_output_free(result->dropout1_result);
 
-    // Free Block 2 outputs
     tensor_free(result->conv2_3x3_out);
     result->conv2_3x3_out = NULL;
     if (result->bn2_3x3_result) {
@@ -473,16 +483,21 @@ void cnn_forward_result_free(CNNForwardResult* result) {
     if (result->bn2_1x1_result) {
         batch_norm2d_output_free(result->bn2_1x1_result);
         result->bn2_1x1_result = NULL;
-        result->residual2_out = NULL;  // This was freed by the batch norm free
+        result->residual2_out = NULL;  // This was already freed by the batch norm free
     }
     tensor_free(result->shortcut2_out);
     result->shortcut2_out = NULL;
+    if (result->bn_shortcut2_result) {
+        batch_norm2d_output_free(result->bn_shortcut2_result);
+        result->bn_shortcut2_result = NULL;
+    }
     tensor_free(result->silu2_residual);
     result->silu2_residual = NULL;
+    tensor_free(result->residual2_sum);
+    result->residual2_sum = NULL;
     maxpool2d_output_free(result->pool2_result);
     dropout2d_output_free(result->dropout2_result);
 
-    // Free Block 3 outputs
     tensor_free(result->conv3_3x3_out);
     result->conv3_3x3_out = NULL;
     if (result->bn3_3x3_result) {
@@ -500,8 +515,14 @@ void cnn_forward_result_free(CNNForwardResult* result) {
     }
     tensor_free(result->shortcut3_out);
     result->shortcut3_out = NULL;
+    if (result->bn_shortcut3_result) {
+        batch_norm2d_output_free(result->bn_shortcut3_result);
+        result->bn_shortcut3_result = NULL;
+    }
     tensor_free(result->silu3_residual);
     result->silu3_residual = NULL;
+    tensor_free(result->residual3_sum);
+    result->residual3_sum = NULL;
     if (result->gap_result) {
         adaptive_avg_pool2d_output_free(result->gap_result);
     }
@@ -512,7 +533,7 @@ void cnn_forward_result_free(CNNForwardResult* result) {
         linear_output_free(result->fc1_result);
         result->fc1_result = NULL;
     }
-    // Note: fc1_out is freed by linear_output_free above
+    // Note: fc1_out is already freed by linear_output_free above
     result->fc1_out = NULL;
     tensor_free(result->silu1_out);
     result->silu1_out = NULL;
@@ -574,7 +595,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
 
     // SiLU FC1 backward
     GET_TIME(start_op);
-    Tensor* silu_fc1_grad = silu_grad(forward_result->silu1_out, dropout_fc_input_grad);
+    Tensor* silu_fc1_grad = silu_grad(forward_result->fc1_out, dropout_fc_input_grad);
     tensor_free(dropout_fc_input_grad);
     check_gradients("SiLU FC1 backward", silu_fc1_grad);
     GET_TIME(end_op);
@@ -625,7 +646,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
 
     // SiLU residual3 backward
     GET_TIME(start_op);
-    Tensor* silu3_residual_grad = silu_grad(forward_result->silu3_residual, gap_input_grad);
+    Tensor* silu3_residual_grad = silu_grad(forward_result->residual3_sum, gap_input_grad);
     tensor_free(gap_input_grad);
     check_gradients("SiLU residual3 backward", silu3_residual_grad);
     GET_TIME(end_op);
@@ -641,7 +662,6 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     // Shortcut path gets the full gradient (since it's added to main)
     Tensor* residual3_shortcut_grad = tensor_create(silu3_residual_grad->shape, silu3_residual_grad->ndim);
     memcpy(residual3_shortcut_grad->data, silu3_residual_grad->data, silu3_residual_grad->size * sizeof(float));
-    // Free the original gradient tensor after copying
     tensor_free(silu3_residual_grad);
     check_gradients("Residual3 split - main", residual3_main_grad);
     check_gradients("Residual3 split - shortcut", residual3_shortcut_grad);
@@ -650,10 +670,21 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
         printf("Backward - Residual3 split: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
-    // Shortcut3 backward
+    // Shortcut3 backward: BN -> Conv
     GET_TIME(start_op);
-    Tensor* shortcut3_input_grad = conv2D_backward(model->shortcut3, forward_result->dropout2_out, residual3_shortcut_grad);
+    BatchNorm2DBackwardOutput* bn_shortcut3_back = batch_norm2d_backward(model->bn_shortcut3, forward_result->bn_shortcut3_result, residual3_shortcut_grad);
+    if (!bn_shortcut3_back) {
+        fprintf(stderr, "BN_shortcut3 backward failed\n");
+        return NULL;
+    }
+    Tensor* bn_shortcut3_input_grad = bn_shortcut3_back->input_grad;
+    bn_shortcut3_back->input_grad = NULL;
+    batch_norm2d_backward_output_free(bn_shortcut3_back);
     tensor_free(residual3_shortcut_grad);
+    check_gradients("BN_shortcut3 backward", bn_shortcut3_input_grad);
+
+    Tensor* shortcut3_input_grad = conv2D_backward(model->shortcut3, forward_result->dropout2_out, bn_shortcut3_input_grad);
+    tensor_free(bn_shortcut3_input_grad);
     check_gradients("Shortcut3 backward", shortcut3_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
@@ -687,7 +718,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     }
 
     GET_TIME(start_op);
-    Tensor* silu3_3x3_grad = silu_grad(forward_result->silu3_3x3, conv3_1x1_input_grad);
+    Tensor* silu3_3x3_grad = silu_grad(forward_result->bn3_3x3_result->output, conv3_1x1_input_grad);
     tensor_free(conv3_1x1_input_grad);
     check_gradients("SiLU3_3x3 backward", silu3_3x3_grad);
     GET_TIME(end_op);
@@ -759,7 +790,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
 
     // SiLU residual2 backward
     GET_TIME(start_op);
-    Tensor* silu2_residual_grad = silu_grad(forward_result->silu2_residual, pool2_input_grad);
+    Tensor* silu2_residual_grad = silu_grad(forward_result->residual2_sum, pool2_input_grad);
     tensor_free(pool2_input_grad);
     check_gradients("SiLU residual2 backward", silu2_residual_grad);
     GET_TIME(end_op);
@@ -773,17 +804,27 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     memcpy(residual2_main_grad->data, silu2_residual_grad->data, silu2_residual_grad->size * sizeof(float));
     Tensor* residual2_shortcut_grad = tensor_create(silu2_residual_grad->shape, silu2_residual_grad->ndim);
     memcpy(residual2_shortcut_grad->data, silu2_residual_grad->data, silu2_residual_grad->size * sizeof(float));
-    // Free the original gradient tensor after copying
     tensor_free(silu2_residual_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
         printf("Backward - Residual2 split: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
-    // Shortcut2 backward
+    // Shortcut2 backward: BN -> Conv
     GET_TIME(start_op);
-    Tensor* shortcut2_input_grad = conv2D_backward(model->shortcut2, forward_result->dropout1_out, residual2_shortcut_grad);
+    BatchNorm2DBackwardOutput* bn_shortcut2_back = batch_norm2d_backward(model->bn_shortcut2, forward_result->bn_shortcut2_result, residual2_shortcut_grad);
+    if (!bn_shortcut2_back) {
+        fprintf(stderr, "BN_shortcut2 backward failed\n");
+        return NULL;
+    }
+    Tensor* bn_shortcut2_input_grad = bn_shortcut2_back->input_grad;
+    bn_shortcut2_back->input_grad = NULL;
+    batch_norm2d_backward_output_free(bn_shortcut2_back);
     tensor_free(residual2_shortcut_grad);
+    check_gradients("BN_shortcut2 backward", bn_shortcut2_input_grad);
+
+    Tensor* shortcut2_input_grad = conv2D_backward(model->shortcut2, forward_result->dropout1_out, bn_shortcut2_input_grad);
+    tensor_free(bn_shortcut2_input_grad);
     check_gradients("Shortcut2 backward", shortcut2_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
@@ -817,7 +858,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     }
 
     GET_TIME(start_op);
-    Tensor* silu2_3x3_grad = silu_grad(forward_result->silu2_3x3, conv2_1x1_input_grad);
+    Tensor* silu2_3x3_grad = silu_grad(forward_result->bn2_3x3_result->output, conv2_1x1_input_grad);
     tensor_free(conv2_1x1_input_grad);
     check_gradients("SiLU2_3x3 backward", silu2_3x3_grad);
     GET_TIME(end_op);
@@ -889,7 +930,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
 
     // SiLU residual1 backward
     GET_TIME(start_op);
-    Tensor* silu1_residual_grad = silu_grad(forward_result->silu1_residual, pool1_input_grad);
+    Tensor* silu1_residual_grad = silu_grad(forward_result->residual1_sum, pool1_input_grad);
     tensor_free(pool1_input_grad);
     check_gradients("SiLU residual1 backward", silu1_residual_grad);
     GET_TIME(end_op);
@@ -910,10 +951,21 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
         printf("Backward - Residual1 split: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
-    // Shortcut1 backward
+    // Shortcut1 backward: BN -> Conv
     GET_TIME(start_op);
-    Tensor* shortcut1_input_grad = conv2D_backward(model->shortcut1, forward_result->input, residual1_shortcut_grad);
+    BatchNorm2DBackwardOutput* bn_shortcut1_back = batch_norm2d_backward(model->bn_shortcut1, forward_result->bn_shortcut1_result, residual1_shortcut_grad);
+    if (!bn_shortcut1_back) {
+        fprintf(stderr, "BN_shortcut1 backward failed\n");
+        return NULL;
+    }
+    Tensor* bn_shortcut1_input_grad = bn_shortcut1_back->input_grad;
+    bn_shortcut1_back->input_grad = NULL;
+    batch_norm2d_backward_output_free(bn_shortcut1_back);
     tensor_free(residual1_shortcut_grad);
+    check_gradients("BN_shortcut1 backward", bn_shortcut1_input_grad);
+
+    Tensor* shortcut1_input_grad = conv2D_backward(model->shortcut1, forward_result->input, bn_shortcut1_input_grad);
+    tensor_free(bn_shortcut1_input_grad);
     check_gradients("Shortcut1 backward", shortcut1_input_grad);
     GET_TIME(end_op);
     if (model->timing_verbose) {
@@ -947,7 +999,7 @@ Tensor* cnn_backward(CNN* model, CNNForwardResult* forward_result, CrossEntropyO
     }
 
     GET_TIME(start_op);
-    Tensor* silu1_3x3_grad = silu_grad(forward_result->silu1_3x3, conv1_1x1_input_grad);
+    Tensor* silu1_3x3_grad = silu_grad(forward_result->bn1_3x3_result->output, conv1_1x1_input_grad);
     tensor_free(conv1_1x1_input_grad);
     check_gradients("SiLU1_3x3 backward", silu1_3x3_grad);
     GET_TIME(end_op);
@@ -1067,8 +1119,8 @@ float cnn_training_step(CNN* model, CNNForwardResult* forward_result, Tensor* ta
 Tensor* cnn_predict(CNN* model, Tensor* input) {
     CNNForwardResult* forward_result = cnn_forward(model, input);
 
-    int pred_shape[] = {input->shape[0], 1, 1, 1};
-    Tensor* predictions = tensor_create(pred_shape, 4);
+    int pred_shape[] = {input->shape[0]};
+    Tensor* predictions = tensor_create(pred_shape, 1);
 
     for (int b = 0; b < input->shape[0]; b++) {
         int max_idx = 0;
@@ -1103,7 +1155,7 @@ void cnn_step_scheduler(CNN* model) {
 }
 
 int cnn_get_parameters(CNN* model, Tensor*** params, Tensor*** grads) {
-    int num_params = 36;  // 9 conv layers * 2 + 6 batch norms * 2 + 2 fc layers * 2 = 36
+    int num_params = 42;  // 9 conv layers * 2 + 9 batch norms * 2 + 2 fc layers * 2 = 42
 
     *params = (Tensor**)malloc(num_params * sizeof(Tensor*));
     *grads = (Tensor**)malloc(num_params * sizeof(Tensor*));
@@ -1141,6 +1193,12 @@ int cnn_get_parameters(CNN* model, Tensor*** params, Tensor*** grads) {
     (*params)[idx] = model->shortcut1->bias;
     (*grads)[idx++] = model->shortcut1->bias_grad;
 
+    (*params)[idx] = model->bn_shortcut1->layer_grad->weights;  // gamma
+    (*grads)[idx++] = model->bn_shortcut1->layer_grad->weight_grad;
+
+    (*params)[idx] = model->bn_shortcut1->layer_grad->biases;   // beta
+    (*grads)[idx++] = model->bn_shortcut1->layer_grad->bias_grad;
+
     // Block 2 convolutional layers + shortcuts
     (*params)[idx] = model->conv2_3x3->weight;
     (*grads)[idx++] = model->conv2_3x3->weight_grad;
@@ -1171,6 +1229,12 @@ int cnn_get_parameters(CNN* model, Tensor*** params, Tensor*** grads) {
 
     (*params)[idx] = model->shortcut2->bias;
     (*grads)[idx++] = model->shortcut2->bias_grad;
+
+    (*params)[idx] = model->bn_shortcut2->layer_grad->weights;  // gamma
+    (*grads)[idx++] = model->bn_shortcut2->layer_grad->weight_grad;
+
+    (*params)[idx] = model->bn_shortcut2->layer_grad->biases;   // beta
+    (*grads)[idx++] = model->bn_shortcut2->layer_grad->bias_grad;
 
     // Block 3 convolutional layers + shortcuts
     (*params)[idx] = model->conv3_3x3->weight;
@@ -1203,6 +1267,12 @@ int cnn_get_parameters(CNN* model, Tensor*** params, Tensor*** grads) {
     (*params)[idx] = model->shortcut3->bias;
     (*grads)[idx++] = model->shortcut3->bias_grad;
 
+    (*params)[idx] = model->bn_shortcut3->layer_grad->weights;  // gamma
+    (*grads)[idx++] = model->bn_shortcut3->layer_grad->weight_grad;
+
+    (*params)[idx] = model->bn_shortcut3->layer_grad->biases;   // beta
+    (*grads)[idx++] = model->bn_shortcut3->layer_grad->bias_grad;
+
     // Fully connected layers
     (*params)[idx] = model->fc1->layer_grad->weights;
     (*grads)[idx++] = model->fc1->layer_grad->weight_grad;
@@ -1229,40 +1299,63 @@ void cnn_free_parameters(Tensor** params, Tensor** grads) {
 }
 
 int cnn_load_weights(CNN* model, int epoch) {
-    // Use larger buffer to prevent overflow (max needed is ~46 chars)
     #define PATH_BUFFER_SIZE 512
     char conv1_3x3_weight_path[PATH_BUFFER_SIZE];
     char conv1_3x3_bias_path[PATH_BUFFER_SIZE];
     char bn1_3x3_gamma_path[PATH_BUFFER_SIZE];
     char bn1_3x3_beta_path[PATH_BUFFER_SIZE];
+    char bn1_3x3_running_mean_path[PATH_BUFFER_SIZE];
+    char bn1_3x3_running_var_path[PATH_BUFFER_SIZE];
     char conv1_1x1_weight_path[PATH_BUFFER_SIZE];
     char conv1_1x1_bias_path[PATH_BUFFER_SIZE];
     char bn1_1x1_gamma_path[PATH_BUFFER_SIZE];
     char bn1_1x1_beta_path[PATH_BUFFER_SIZE];
+    char bn1_1x1_running_mean_path[PATH_BUFFER_SIZE];
+    char bn1_1x1_running_var_path[PATH_BUFFER_SIZE];
     char shortcut1_weight_path[PATH_BUFFER_SIZE];
     char shortcut1_bias_path[PATH_BUFFER_SIZE];
+    char bn_shortcut1_gamma_path[PATH_BUFFER_SIZE];
+    char bn_shortcut1_beta_path[PATH_BUFFER_SIZE];
+    char bn_shortcut1_running_mean_path[PATH_BUFFER_SIZE];
+    char bn_shortcut1_running_var_path[PATH_BUFFER_SIZE];
 
     char conv2_3x3_weight_path[PATH_BUFFER_SIZE];
     char conv2_3x3_bias_path[PATH_BUFFER_SIZE];
     char bn2_3x3_gamma_path[PATH_BUFFER_SIZE];
     char bn2_3x3_beta_path[PATH_BUFFER_SIZE];
+    char bn2_3x3_running_mean_path[PATH_BUFFER_SIZE];
+    char bn2_3x3_running_var_path[PATH_BUFFER_SIZE];
     char conv2_1x1_weight_path[PATH_BUFFER_SIZE];
     char conv2_1x1_bias_path[PATH_BUFFER_SIZE];
     char bn2_1x1_gamma_path[PATH_BUFFER_SIZE];
     char bn2_1x1_beta_path[PATH_BUFFER_SIZE];
+    char bn2_1x1_running_mean_path[PATH_BUFFER_SIZE];
+    char bn2_1x1_running_var_path[PATH_BUFFER_SIZE];
     char shortcut2_weight_path[PATH_BUFFER_SIZE];
     char shortcut2_bias_path[PATH_BUFFER_SIZE];
+    char bn_shortcut2_gamma_path[PATH_BUFFER_SIZE];
+    char bn_shortcut2_beta_path[PATH_BUFFER_SIZE];
+    char bn_shortcut2_running_mean_path[PATH_BUFFER_SIZE];
+    char bn_shortcut2_running_var_path[PATH_BUFFER_SIZE];
 
     char conv3_3x3_weight_path[PATH_BUFFER_SIZE];
     char conv3_3x3_bias_path[PATH_BUFFER_SIZE];
     char bn3_3x3_gamma_path[PATH_BUFFER_SIZE];
     char bn3_3x3_beta_path[PATH_BUFFER_SIZE];
+    char bn3_3x3_running_mean_path[PATH_BUFFER_SIZE];
+    char bn3_3x3_running_var_path[PATH_BUFFER_SIZE];
     char conv3_1x1_weight_path[PATH_BUFFER_SIZE];
     char conv3_1x1_bias_path[PATH_BUFFER_SIZE];
     char bn3_1x1_gamma_path[PATH_BUFFER_SIZE];
     char bn3_1x1_beta_path[PATH_BUFFER_SIZE];
+    char bn3_1x1_running_mean_path[PATH_BUFFER_SIZE];
+    char bn3_1x1_running_var_path[PATH_BUFFER_SIZE];
     char shortcut3_weight_path[PATH_BUFFER_SIZE];
     char shortcut3_bias_path[PATH_BUFFER_SIZE];
+    char bn_shortcut3_gamma_path[PATH_BUFFER_SIZE];
+    char bn_shortcut3_beta_path[PATH_BUFFER_SIZE];
+    char bn_shortcut3_running_mean_path[PATH_BUFFER_SIZE];
+    char bn_shortcut3_running_var_path[PATH_BUFFER_SIZE];
 
     char fc1_weight_path[PATH_BUFFER_SIZE];
     char fc1_bias_path[PATH_BUFFER_SIZE];
@@ -1273,34 +1366,58 @@ int cnn_load_weights(CNN* model, int epoch) {
     sprintf(conv1_3x3_bias_path, "weights/conv1_3x3_bias_epoch_%d.bin", epoch);
     sprintf(bn1_3x3_gamma_path, "weights/bn1_3x3_gamma_epoch_%d.bin", epoch);
     sprintf(bn1_3x3_beta_path, "weights/bn1_3x3_beta_epoch_%d.bin", epoch);
+    sprintf(bn1_3x3_running_mean_path, "weights/bn1_3x3_running_mean_epoch_%d.bin", epoch);
+    sprintf(bn1_3x3_running_var_path, "weights/bn1_3x3_running_var_epoch_%d.bin", epoch);
     sprintf(conv1_1x1_weight_path, "weights/conv1_1x1_weight_epoch_%d.bin", epoch);
     sprintf(conv1_1x1_bias_path, "weights/conv1_1x1_bias_epoch_%d.bin", epoch);
     sprintf(bn1_1x1_gamma_path, "weights/bn1_1x1_gamma_epoch_%d.bin", epoch);
     sprintf(bn1_1x1_beta_path, "weights/bn1_1x1_beta_epoch_%d.bin", epoch);
+    sprintf(bn1_1x1_running_mean_path, "weights/bn1_1x1_running_mean_epoch_%d.bin", epoch);
+    sprintf(bn1_1x1_running_var_path, "weights/bn1_1x1_running_var_epoch_%d.bin", epoch);
     sprintf(shortcut1_weight_path, "weights/shortcut1_weight_epoch_%d.bin", epoch);
     sprintf(shortcut1_bias_path, "weights/shortcut1_bias_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut1_gamma_path, "weights/bn_shortcut1_gamma_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut1_beta_path, "weights/bn_shortcut1_beta_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut1_running_mean_path, "weights/bn_shortcut1_running_mean_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut1_running_var_path, "weights/bn_shortcut1_running_var_epoch_%d.bin", epoch);
 
     sprintf(conv2_3x3_weight_path, "weights/conv2_3x3_weight_epoch_%d.bin", epoch);
     sprintf(conv2_3x3_bias_path, "weights/conv2_3x3_bias_epoch_%d.bin", epoch);
     sprintf(bn2_3x3_gamma_path, "weights/bn2_3x3_gamma_epoch_%d.bin", epoch);
     sprintf(bn2_3x3_beta_path, "weights/bn2_3x3_beta_epoch_%d.bin", epoch);
+    sprintf(bn2_3x3_running_mean_path, "weights/bn2_3x3_running_mean_epoch_%d.bin", epoch);
+    sprintf(bn2_3x3_running_var_path, "weights/bn2_3x3_running_var_epoch_%d.bin", epoch);
     sprintf(conv2_1x1_weight_path, "weights/conv2_1x1_weight_epoch_%d.bin", epoch);
     sprintf(conv2_1x1_bias_path, "weights/conv2_1x1_bias_epoch_%d.bin", epoch);
     sprintf(bn2_1x1_gamma_path, "weights/bn2_1x1_gamma_epoch_%d.bin", epoch);
     sprintf(bn2_1x1_beta_path, "weights/bn2_1x1_beta_epoch_%d.bin", epoch);
+    sprintf(bn2_1x1_running_mean_path, "weights/bn2_1x1_running_mean_epoch_%d.bin", epoch);
+    sprintf(bn2_1x1_running_var_path, "weights/bn2_1x1_running_var_epoch_%d.bin", epoch);
     sprintf(shortcut2_weight_path, "weights/shortcut2_weight_epoch_%d.bin", epoch);
     sprintf(shortcut2_bias_path, "weights/shortcut2_bias_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut2_gamma_path, "weights/bn_shortcut2_gamma_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut2_beta_path, "weights/bn_shortcut2_beta_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut2_running_mean_path, "weights/bn_shortcut2_running_mean_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut2_running_var_path, "weights/bn_shortcut2_running_var_epoch_%d.bin", epoch);
 
     sprintf(conv3_3x3_weight_path, "weights/conv3_3x3_weight_epoch_%d.bin", epoch);
     sprintf(conv3_3x3_bias_path, "weights/conv3_3x3_bias_epoch_%d.bin", epoch);
     sprintf(bn3_3x3_gamma_path, "weights/bn3_3x3_gamma_epoch_%d.bin", epoch);
     sprintf(bn3_3x3_beta_path, "weights/bn3_3x3_beta_epoch_%d.bin", epoch);
+    sprintf(bn3_3x3_running_mean_path, "weights/bn3_3x3_running_mean_epoch_%d.bin", epoch);
+    sprintf(bn3_3x3_running_var_path, "weights/bn3_3x3_running_var_epoch_%d.bin", epoch);
     sprintf(conv3_1x1_weight_path, "weights/conv3_1x1_weight_epoch_%d.bin", epoch);
     sprintf(conv3_1x1_bias_path, "weights/conv3_1x1_bias_epoch_%d.bin", epoch);
     sprintf(bn3_1x1_gamma_path, "weights/bn3_1x1_gamma_epoch_%d.bin", epoch);
     sprintf(bn3_1x1_beta_path, "weights/bn3_1x1_beta_epoch_%d.bin", epoch);
+    sprintf(bn3_1x1_running_mean_path, "weights/bn3_1x1_running_mean_epoch_%d.bin", epoch);
+    sprintf(bn3_1x1_running_var_path, "weights/bn3_1x1_running_var_epoch_%d.bin", epoch);
     sprintf(shortcut3_weight_path, "weights/shortcut3_weight_epoch_%d.bin", epoch);
     sprintf(shortcut3_bias_path, "weights/shortcut3_bias_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut3_gamma_path, "weights/bn_shortcut3_gamma_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut3_beta_path, "weights/bn_shortcut3_beta_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut3_running_mean_path, "weights/bn_shortcut3_running_mean_epoch_%d.bin", epoch);
+    sprintf(bn_shortcut3_running_var_path, "weights/bn_shortcut3_running_var_epoch_%d.bin", epoch);
 
     sprintf(fc1_weight_path, "weights/fc1_weight_epoch_%d.bin", epoch);
     sprintf(fc1_bias_path, "weights/fc1_bias_epoch_%d.bin", epoch);
@@ -1310,21 +1427,33 @@ int cnn_load_weights(CNN* model, int epoch) {
     return cnn_load_weights_from_files(model,
                                              conv1_3x3_weight_path, conv1_3x3_bias_path,
                                              bn1_3x3_gamma_path, bn1_3x3_beta_path,
+                                             bn1_3x3_running_mean_path, bn1_3x3_running_var_path,
                                              conv1_1x1_weight_path, conv1_1x1_bias_path,
                                              bn1_1x1_gamma_path, bn1_1x1_beta_path,
+                                             bn1_1x1_running_mean_path, bn1_1x1_running_var_path,
                                              shortcut1_weight_path, shortcut1_bias_path,
+                                             bn_shortcut1_gamma_path, bn_shortcut1_beta_path,
+                                             bn_shortcut1_running_mean_path, bn_shortcut1_running_var_path,
 
                                              conv2_3x3_weight_path, conv2_3x3_bias_path,
                                              bn2_3x3_gamma_path, bn2_3x3_beta_path,
+                                             bn2_3x3_running_mean_path, bn2_3x3_running_var_path,
                                              conv2_1x1_weight_path, conv2_1x1_bias_path,
                                              bn2_1x1_gamma_path, bn2_1x1_beta_path,
+                                             bn2_1x1_running_mean_path, bn2_1x1_running_var_path,
                                              shortcut2_weight_path, shortcut2_bias_path,
+                                             bn_shortcut2_gamma_path, bn_shortcut2_beta_path,
+                                             bn_shortcut2_running_mean_path, bn_shortcut2_running_var_path,
 
                                              conv3_3x3_weight_path, conv3_3x3_bias_path,
                                              bn3_3x3_gamma_path, bn3_3x3_beta_path,
+                                             bn3_3x3_running_mean_path, bn3_3x3_running_var_path,
                                              conv3_1x1_weight_path, conv3_1x1_bias_path,
                                              bn3_1x1_gamma_path, bn3_1x1_beta_path,
+                                             bn3_1x1_running_mean_path, bn3_1x1_running_var_path,
                                              shortcut3_weight_path, shortcut3_bias_path,
+                                             bn_shortcut3_gamma_path, bn_shortcut3_beta_path,
+                                             bn_shortcut3_running_mean_path, bn_shortcut3_running_var_path,
 
                                              fc1_weight_path, fc1_bias_path,
                                              fc2_weight_path, fc2_bias_path);
@@ -1353,34 +1482,58 @@ int cnn_load_weights_from_files(CNN* model,
                                        const char* conv1_3x3_bias_path,
                                        const char* bn1_3x3_gamma_path,
                                        const char* bn1_3x3_beta_path,
+                                       const char* bn1_3x3_running_mean_path,
+                                       const char* bn1_3x3_running_var_path,
                                        const char* conv1_1x1_weight_path,
                                        const char* conv1_1x1_bias_path,
                                        const char* bn1_1x1_gamma_path,
                                        const char* bn1_1x1_beta_path,
+                                       const char* bn1_1x1_running_mean_path,
+                                       const char* bn1_1x1_running_var_path,
                                        const char* shortcut1_weight_path,
                                        const char* shortcut1_bias_path,
+                                       const char* bn_shortcut1_gamma_path,
+                                       const char* bn_shortcut1_beta_path,
+                                       const char* bn_shortcut1_running_mean_path,
+                                       const char* bn_shortcut1_running_var_path,
 
                                        const char* conv2_3x3_weight_path,
                                        const char* conv2_3x3_bias_path,
                                        const char* bn2_3x3_gamma_path,
                                        const char* bn2_3x3_beta_path,
+                                       const char* bn2_3x3_running_mean_path,
+                                       const char* bn2_3x3_running_var_path,
                                        const char* conv2_1x1_weight_path,
                                        const char* conv2_1x1_bias_path,
                                        const char* bn2_1x1_gamma_path,
                                        const char* bn2_1x1_beta_path,
+                                       const char* bn2_1x1_running_mean_path,
+                                       const char* bn2_1x1_running_var_path,
                                        const char* shortcut2_weight_path,
                                        const char* shortcut2_bias_path,
+                                       const char* bn_shortcut2_gamma_path,
+                                       const char* bn_shortcut2_beta_path,
+                                       const char* bn_shortcut2_running_mean_path,
+                                       const char* bn_shortcut2_running_var_path,
 
                                        const char* conv3_3x3_weight_path,
                                        const char* conv3_3x3_bias_path,
                                        const char* bn3_3x3_gamma_path,
                                        const char* bn3_3x3_beta_path,
+                                       const char* bn3_3x3_running_mean_path,
+                                       const char* bn3_3x3_running_var_path,
                                        const char* conv3_1x1_weight_path,
                                        const char* conv3_1x1_bias_path,
                                        const char* bn3_1x1_gamma_path,
                                        const char* bn3_1x1_beta_path,
+                                       const char* bn3_1x1_running_mean_path,
+                                       const char* bn3_1x1_running_var_path,
                                        const char* shortcut3_weight_path,
                                        const char* shortcut3_bias_path,
+                                       const char* bn_shortcut3_gamma_path,
+                                       const char* bn_shortcut3_beta_path,
+                                       const char* bn_shortcut3_running_mean_path,
+                                       const char* bn_shortcut3_running_var_path,
 
                                        const char* fc1_weight_path,
                                        const char* fc1_bias_path,
@@ -1392,36 +1545,60 @@ int cnn_load_weights_from_files(CNN* model,
     if (!load_tensor_from_file(conv1_3x3_bias_path, model->conv1_3x3->bias, "conv1_3x3 bias")) return 0;
     if (!load_tensor_from_file(bn1_3x3_gamma_path, model->bn1_3x3->layer_grad->weights, "bn1_3x3 gamma")) return 0;
     if (!load_tensor_from_file(bn1_3x3_beta_path, model->bn1_3x3->layer_grad->biases, "bn1_3x3 beta")) return 0;
+    if (!load_tensor_from_file(bn1_3x3_running_mean_path, model->bn1_3x3->running_mean, "bn1_3x3 running_mean")) return 0;
+    if (!load_tensor_from_file(bn1_3x3_running_var_path, model->bn1_3x3->running_var, "bn1_3x3 running_var")) return 0;
     if (!load_tensor_from_file(conv1_1x1_weight_path, model->conv1_1x1->weight, "conv1_1x1 weights")) return 0;
     if (!load_tensor_from_file(conv1_1x1_bias_path, model->conv1_1x1->bias, "conv1_1x1 bias")) return 0;
     if (!load_tensor_from_file(bn1_1x1_gamma_path, model->bn1_1x1->layer_grad->weights, "bn1_1x1 gamma")) return 0;
     if (!load_tensor_from_file(bn1_1x1_beta_path, model->bn1_1x1->layer_grad->biases, "bn1_1x1 beta")) return 0;
+    if (!load_tensor_from_file(bn1_1x1_running_mean_path, model->bn1_1x1->running_mean, "bn1_1x1 running_mean")) return 0;
+    if (!load_tensor_from_file(bn1_1x1_running_var_path, model->bn1_1x1->running_var, "bn1_1x1 running_var")) return 0;
     if (!load_tensor_from_file(shortcut1_weight_path, model->shortcut1->weight, "shortcut1 weights")) return 0;
     if (!load_tensor_from_file(shortcut1_bias_path, model->shortcut1->bias, "shortcut1 bias")) return 0;
+    if (!load_tensor_from_file(bn_shortcut1_gamma_path, model->bn_shortcut1->layer_grad->weights, "bn_shortcut1 gamma")) return 0;
+    if (!load_tensor_from_file(bn_shortcut1_beta_path, model->bn_shortcut1->layer_grad->biases, "bn_shortcut1 beta")) return 0;
+    if (!load_tensor_from_file(bn_shortcut1_running_mean_path, model->bn_shortcut1->running_mean, "bn_shortcut1 running_mean")) return 0;
+    if (!load_tensor_from_file(bn_shortcut1_running_var_path, model->bn_shortcut1->running_var, "bn_shortcut1 running_var")) return 0;
 
     // Block 2
     if (!load_tensor_from_file(conv2_3x3_weight_path, model->conv2_3x3->weight, "conv2_3x3 weights")) return 0;
     if (!load_tensor_from_file(conv2_3x3_bias_path, model->conv2_3x3->bias, "conv2_3x3 bias")) return 0;
     if (!load_tensor_from_file(bn2_3x3_gamma_path, model->bn2_3x3->layer_grad->weights, "bn2_3x3 gamma")) return 0;
     if (!load_tensor_from_file(bn2_3x3_beta_path, model->bn2_3x3->layer_grad->biases, "bn2_3x3 beta")) return 0;
+    if (!load_tensor_from_file(bn2_3x3_running_mean_path, model->bn2_3x3->running_mean, "bn2_3x3 running_mean")) return 0;
+    if (!load_tensor_from_file(bn2_3x3_running_var_path, model->bn2_3x3->running_var, "bn2_3x3 running_var")) return 0;
     if (!load_tensor_from_file(conv2_1x1_weight_path, model->conv2_1x1->weight, "conv2_1x1 weights")) return 0;
     if (!load_tensor_from_file(conv2_1x1_bias_path, model->conv2_1x1->bias, "conv2_1x1 bias")) return 0;
     if (!load_tensor_from_file(bn2_1x1_gamma_path, model->bn2_1x1->layer_grad->weights, "bn2_1x1 gamma")) return 0;
     if (!load_tensor_from_file(bn2_1x1_beta_path, model->bn2_1x1->layer_grad->biases, "bn2_1x1 beta")) return 0;
+    if (!load_tensor_from_file(bn2_1x1_running_mean_path, model->bn2_1x1->running_mean, "bn2_1x1 running_mean")) return 0;
+    if (!load_tensor_from_file(bn2_1x1_running_var_path, model->bn2_1x1->running_var, "bn2_1x1 running_var")) return 0;
     if (!load_tensor_from_file(shortcut2_weight_path, model->shortcut2->weight, "shortcut2 weights")) return 0;
     if (!load_tensor_from_file(shortcut2_bias_path, model->shortcut2->bias, "shortcut2 bias")) return 0;
+    if (!load_tensor_from_file(bn_shortcut2_gamma_path, model->bn_shortcut2->layer_grad->weights, "bn_shortcut2 gamma")) return 0;
+    if (!load_tensor_from_file(bn_shortcut2_beta_path, model->bn_shortcut2->layer_grad->biases, "bn_shortcut2 beta")) return 0;
+    if (!load_tensor_from_file(bn_shortcut2_running_mean_path, model->bn_shortcut2->running_mean, "bn_shortcut2 running_mean")) return 0;
+    if (!load_tensor_from_file(bn_shortcut2_running_var_path, model->bn_shortcut2->running_var, "bn_shortcut2 running_var")) return 0;
 
     // Block 3
     if (!load_tensor_from_file(conv3_3x3_weight_path, model->conv3_3x3->weight, "conv3_3x3 weights")) return 0;
     if (!load_tensor_from_file(conv3_3x3_bias_path, model->conv3_3x3->bias, "conv3_3x3 bias")) return 0;
     if (!load_tensor_from_file(bn3_3x3_gamma_path, model->bn3_3x3->layer_grad->weights, "bn3_3x3 gamma")) return 0;
     if (!load_tensor_from_file(bn3_3x3_beta_path, model->bn3_3x3->layer_grad->biases, "bn3_3x3 beta")) return 0;
+    if (!load_tensor_from_file(bn3_3x3_running_mean_path, model->bn3_3x3->running_mean, "bn3_3x3 running_mean")) return 0;
+    if (!load_tensor_from_file(bn3_3x3_running_var_path, model->bn3_3x3->running_var, "bn3_3x3 running_var")) return 0;
     if (!load_tensor_from_file(conv3_1x1_weight_path, model->conv3_1x1->weight, "conv3_1x1 weights")) return 0;
     if (!load_tensor_from_file(conv3_1x1_bias_path, model->conv3_1x1->bias, "conv3_1x1 bias")) return 0;
     if (!load_tensor_from_file(bn3_1x1_gamma_path, model->bn3_1x1->layer_grad->weights, "bn3_1x1 gamma")) return 0;
     if (!load_tensor_from_file(bn3_1x1_beta_path, model->bn3_1x1->layer_grad->biases, "bn3_1x1 beta")) return 0;
+    if (!load_tensor_from_file(bn3_1x1_running_mean_path, model->bn3_1x1->running_mean, "bn3_1x1 running_mean")) return 0;
+    if (!load_tensor_from_file(bn3_1x1_running_var_path, model->bn3_1x1->running_var, "bn3_1x1 running_var")) return 0;
     if (!load_tensor_from_file(shortcut3_weight_path, model->shortcut3->weight, "shortcut3 weights")) return 0;
     if (!load_tensor_from_file(shortcut3_bias_path, model->shortcut3->bias, "shortcut3 bias")) return 0;
+    if (!load_tensor_from_file(bn_shortcut3_gamma_path, model->bn_shortcut3->layer_grad->weights, "bn_shortcut3 gamma")) return 0;
+    if (!load_tensor_from_file(bn_shortcut3_beta_path, model->bn_shortcut3->layer_grad->biases, "bn_shortcut3 beta")) return 0;
+    if (!load_tensor_from_file(bn_shortcut3_running_mean_path, model->bn_shortcut3->running_mean, "bn_shortcut3 running_mean")) return 0;
+    if (!load_tensor_from_file(bn_shortcut3_running_var_path, model->bn_shortcut3->running_var, "bn_shortcut3 running_var")) return 0;
 
     // FC layers
     if (!load_tensor_from_file(fc1_weight_path, model->fc1->layer_grad->weights, "fc1 weights")) return 0;
