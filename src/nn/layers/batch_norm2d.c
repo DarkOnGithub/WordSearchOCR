@@ -28,7 +28,6 @@ BatchNorm2D* batch_norm2d_create(int num_features, float momentum, float epsilon
 
     int param_shape[1] = {num_features};
 
-    // Initialize gamma to 1.0 and beta to 0.0
     Tensor* gamma = tensor_create_ones(param_shape, 1);
     Tensor* beta = tensor_create_zero(param_shape, 1);
     layer->layer_grad = layer_grad_create(gamma, beta);
@@ -42,11 +41,9 @@ BatchNorm2D* batch_norm2d_create(int num_features, float momentum, float epsilon
     }
 
 
-    // Running statistics
     layer->running_mean = tensor_create_zero(param_shape, 1);
     layer->running_var = tensor_create_ones(param_shape, 1);
 
-    // Cache tensors (initialized to NULL, allocated during forward pass)
     layer->input_cache = NULL;
     layer->normalized_cache = NULL;
     layer->std_cache = NULL;
@@ -63,7 +60,6 @@ void batch_norm2d_free(BatchNorm2D* layer) {
     tensor_free(layer->running_mean);
     tensor_free(layer->running_var);
 
-    // Free cache tensors if they exist
     if (layer->input_cache) tensor_free(layer->input_cache);
     if (layer->normalized_cache) tensor_free(layer->normalized_cache);
     if (layer->std_cache) tensor_free(layer->std_cache);

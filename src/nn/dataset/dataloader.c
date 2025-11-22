@@ -13,7 +13,6 @@ int reverse_int(int i) {
     return ((int)c1 << 24) + ((int)c2 << 16) + ((int)c3 << 8) + c4;
 }
 
-// Read IDX file header
 int read_idx_header(FILE* file, int* magic, int* num_items, int* rows, int* cols) {
     if (fread(magic, sizeof(int), 1, file) != 1) return 0;
     *magic = reverse_int(*magic);
@@ -21,14 +20,12 @@ int read_idx_header(FILE* file, int* magic, int* num_items, int* rows, int* cols
     if (fread(num_items, sizeof(int), 1, file) != 1) return 0;
     *num_items = reverse_int(*num_items);
 
-    // For labels (1D data), rows and cols are not present in header
-    if (*magic == 2049) {  // Labels magic number
+    if (*magic == 2049) {
         *rows = 0;
         *cols = 0;
         return 1;
     }
 
-    // For images (3D data), read dimensions
     if (*magic == 2051) {  // Images magic number
         if (fread(rows, sizeof(int), 1, file) != 1) return 0;
         *rows = reverse_int(*rows);
@@ -38,11 +35,9 @@ int read_idx_header(FILE* file, int* magic, int* num_items, int* rows, int* cols
         return 1;
     }
 
-    // Unknown magic number
     return 0;
 }
 
-// Load IDX images
 unsigned char* load_idx_images(const char* path, int* num_images, int* rows, int* cols) {
     printf("  Opening image file: %s\n", path);
     FILE* file = fopen(path, "rb");
@@ -61,7 +56,6 @@ unsigned char* load_idx_images(const char* path, int* num_images, int* rows, int
 
     printf("  Magic: 0x%08X, Images: %d, Size: %dx%d\n", magic, *num_images, *rows, *cols);
 
-    // Verify magic number for images (0x00000803)
     if (magic != 2051) {
         printf("  Error: Invalid magic number for images (expected 2051, got %d)\n", magic);
         fclose(file);
@@ -93,7 +87,6 @@ unsigned char* load_idx_images(const char* path, int* num_images, int* rows, int
     return data;
 }
 
-// Load IDX labels
 unsigned char* load_idx_labels(const char* path, int* num_labels) {
     printf("  Opening label file: %s\n", path);
     FILE* file = fopen(path, "rb");
@@ -112,7 +105,6 @@ unsigned char* load_idx_labels(const char* path, int* num_labels) {
 
     printf("  Magic: 0x%08X, Labels: %d\n", magic, *num_labels);
 
-    // Verify magic number for labels (0x00000801)
     if (magic != 2049) {
         printf("  Error: Invalid magic number for labels (expected 2049, got %d)\n", magic);
         fclose(file);
@@ -141,13 +133,11 @@ unsigned char* load_idx_labels(const char* path, int* num_labels) {
     return data;
 }
 
-// Worker function for multi-threaded batch loading
 void* load_batch_worker(void* args) {
     ThreadArgs* thread_args = (ThreadArgs*)args;
     int worker_id = thread_args->worker_id;
     int num_batches = (thread_args->num_images + thread_args->batch_size - 1) / thread_args->batch_size;
 
-    // Each worker processes batches assigned to it in round-robin fashion
     for (int batch_idx = worker_id; batch_idx < num_batches; batch_idx += thread_args->num_workers) {
         int start_sample = batch_idx * thread_args->batch_size;
         int end_sample = (start_sample + thread_args->batch_size > thread_args->num_images) ?
@@ -156,7 +146,6 @@ void* load_batch_worker(void* args) {
         int actual_batch_size = end_sample - start_sample;
         if (actual_batch_size <= 0) continue;
 
-        // Create batch tensors
         int data_shape[4] = {actual_batch_size, 1, 28, 28};
         int label_shape[3] = {actual_batch_size, 1, 1};
         thread_args->dataset->batches[batch_idx].data = tensor_create(data_shape, 4);
@@ -166,12 +155,9 @@ void* load_batch_worker(void* args) {
             return NULL;
         }
 
-        // Load data into tensors
         for (int i = 0; i < actual_batch_size; i++) {
-            // Use shuffled indices if available, otherwise sequential
             int sample_idx = thread_args->indices ? thread_args->indices[start_sample + i] : (start_sample + i);
 
-            // Copy image data (normalize to 0-1 range)
             for (int y = 0; y < 28; y++) {
                 for (int x = 0; x < 28; x++) {
                     int file_pixel_idx = sample_idx * IMAGE_SIZE + y * 28 + x;
@@ -183,7 +169,6 @@ void* load_batch_worker(void* args) {
                 }
             }
 
-            // Set label (as class index, 0-based indexing: 0-25 for a-z)
             thread_args->dataset->batches[batch_idx].labels->data[i] =
                 (float)thread_args->label_data[sample_idx];
         }
@@ -193,7 +178,6 @@ void* load_batch_worker(void* args) {
 }
 
 
-// Font-based letter dataset loading function with sample limit for testing
 Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, int batch_size, int shuffle, int num_workers, int* max_samples) {
     printf("Loading images from: %s\n", images_path);
     printf("Loading labels from: %s\n", labels_path);
@@ -203,7 +187,6 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
         printf("Using all available samples\n");
     }
 
-    // Load raw data
     int num_images, rows, cols, num_labels;
     unsigned char* image_data = load_idx_images(images_path, &num_images, &rows, &cols);
 
@@ -238,13 +221,11 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
         return NULL;
     }
 
-    // Dataset should have classes 0-25 (a-z, 0-based indexing)
-    // Count valid samples and check class range
     int min_class = 26, max_class = -1;
     int filtered_count = 0;
     for (int i = 0; i < num_images; i++) {
         int label = (int)label_data[i];
-        if (label >= 0 && label <= 25) {  // letters a-z (0-based)
+        if (label >= 0 && label <= 25) {
             filtered_count++;
             if (label < min_class) min_class = label;
             if (label > max_class) max_class = label;
@@ -262,7 +243,6 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
         return NULL;
     }
 
-    // Check class range - allow subsets for testing/validation
     if (min_class < 0 || max_class > 25) {
         printf("Error: Invalid class range %d-%d (expected 0-25)\n", min_class, max_class);
         free(image_data);
@@ -276,14 +256,12 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
         printf("✓ Dataset contains classes %d-%d (subset of a-z)\n", min_class, max_class);
     }
 
-    // Limit samples if max_samples is specified and positive
     int final_sample_count = filtered_count;
     if (max_samples && *max_samples > 0 && *max_samples < filtered_count) {
         final_sample_count = *max_samples;
         printf("Limiting dataset to %d samples as requested\n", final_sample_count);
     }
 
-    // Create filtered arrays with final sample count
     unsigned char* filtered_images = (unsigned char*)malloc(final_sample_count * IMAGE_SIZE);
     unsigned char* filtered_labels = (unsigned char*)malloc(final_sample_count);
 
@@ -301,23 +279,20 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
             memcpy(&filtered_images[filtered_idx * IMAGE_SIZE],
                    &image_data[i * IMAGE_SIZE],
                    IMAGE_SIZE);
-            filtered_labels[filtered_idx] = label;  // Labels are already 0-25
+            filtered_labels[filtered_idx] = label;
 
             filtered_idx++;
         }
     }
 
-    // Replace original arrays with filtered ones
     free(image_data);
     free(label_data);
     image_data = filtered_images;
     label_data = filtered_labels;
     num_images = final_sample_count;
 
-    // Calculate number of batches
-    int num_batches = (num_images + batch_size - 1) / batch_size;  // Ceiling division
+    int num_batches = (num_images + batch_size - 1) / batch_size;
 
-    // Allocate dataset
     Dataset* dataset = (Dataset*)malloc(sizeof(Dataset));
     if (!dataset) {
         printf("Error: Failed to allocate dataset\n");
@@ -338,7 +313,6 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
     dataset->num_batches = num_batches;
     dataset->total_samples = num_images;
 
-    // Shuffle indices if requested
     int* indices = NULL;
     if (shuffle) {
         indices = (int*)malloc(sizeof(int) * num_images);
@@ -350,7 +324,6 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
             return NULL;
         }
         for (int i = 0; i < num_images; i++) indices[i] = i;
-        // Simple Fisher-Yates shuffle
         for (int i = num_images - 1; i > 0; i--) {
             int j = rand() % (i + 1);
             int temp = indices[i];
@@ -359,12 +332,10 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
         }
     }
 
-    // Multi-threaded batch loading
     pthread_t* threads = (pthread_t*)malloc(sizeof(pthread_t) * num_workers);
     ThreadArgs* thread_args = (ThreadArgs*)malloc(sizeof(ThreadArgs) * num_workers);
     pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-    // Create worker threads
     for (int w = 0; w < num_workers; w++) {
         thread_args[w] = (ThreadArgs){
             .images_path = images_path,
@@ -375,8 +346,8 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
             .batch_size = batch_size,
             .shuffle = shuffle,
             .num_workers = num_workers,
-            .worker_id = w,  // worker index (0 to num_workers-1)
-            .indices = indices,  // shuffled indices (or NULL)
+            .worker_id = w,
+            .indices = indices,
             .dataset = dataset,
             .mutex = &mutex
         };
@@ -384,12 +355,10 @@ Dataset* dataset_load_emnist(const char* images_path, const char* labels_path, i
         pthread_create(&threads[w], NULL, load_batch_worker, &thread_args[w]);
     }
 
-    // Wait for all threads to complete
     for (int w = 0; w < num_workers; w++) {
         pthread_join(threads[w], NULL);
     }
 
-    // Cleanup
     free(threads);
     free(thread_args);
     free(image_data);

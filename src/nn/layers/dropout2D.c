@@ -11,7 +11,6 @@ static inline void broadcast_mask_to_tensor(float* __restrict output,
                                                  const float* __restrict mask,
                                                  int batch_size, int channels,
                                                  int height, int width) {
-    // Broadcast mask from (batch_size, channels, 1, 1) to (batch_size, channels, height, width)
     const int spatial_size = height * width;
 
     for (int b = 0; b < batch_size; ++b) {
@@ -41,7 +40,6 @@ static inline void broadcast_mask_to_grad(float* __restrict input_grad,
                                                const float* __restrict mask,
                                                int batch_size, int channels,
                                                int height, int width) {
-    // Broadcast mask from (batch_size, channels, 1, 1) to (batch_size, channels, height, width)
     const int spatial_size = height * width;
 
     for (int b = 0; b < batch_size; ++b) {
@@ -94,7 +92,6 @@ Dropout2DOutput* dropout2d_forward(Dropout2D* layer, Tensor* input) {
     Tensor* mask = NULL;
 
     if (layer->training && layer->dropout_rate > 0.0f) {
-        // Create mask with shape (batch_size, channels, 1, 1)
         int mask_shape[4] = {input->shape[0], input->shape[1], 1, 1};
         mask = tensor_create(mask_shape, 4);
         if (!mask) {
@@ -102,17 +99,14 @@ Dropout2DOutput* dropout2d_forward(Dropout2D* layer, Tensor* input) {
             return NULL;
         }
 
-        // Generate dropout mask for each channel in each batch
         for (int b = 0; b < input->shape[0]; ++b) {
             for (int c = 0; c < input->shape[1]; ++c) {
                 float rand_val = random_float();
                 int mask_idx = b * input->shape[1] + c;
 
                 if (rand_val < layer->dropout_rate) {
-                    // Drop this entire channel
                     mask->data[mask_idx] = 0.0f;
                 } else {
-                    // Keep this channel, scale by (1/(1-dropout_rate)) for variance preservation
                     mask->data[mask_idx] = 1.0f / (1.0f - layer->dropout_rate);
                 }
             }
@@ -122,7 +116,6 @@ Dropout2DOutput* dropout2d_forward(Dropout2D* layer, Tensor* input) {
                                      input->shape[0], input->shape[1],
                                      input->shape[2], input->shape[3]);
     } else {
-        // Inference mode or dropout_rate = 0: scale by (1-dropout_rate)
         memcpy(output->data, input->data, input->size * sizeof(float));
         tensor_scale_inplace(output, 1.0f - layer->dropout_rate);
     }
@@ -167,13 +160,10 @@ Dropout2DBackwardOutput* dropout2d_backward(Dropout2D* layer, Dropout2DOutput* f
     if (!input_grad) return NULL;
 
     if (layer->training && forward_result->mask) {
-        // Training mode: use the dropout mask to route gradients
-        // Broadcast mask from (batch_size, channels, 1, 1) to full tensor shape
         broadcast_mask_to_grad(input_grad->data, output_grad->data, forward_result->mask->data,
                                    output_grad->shape[0], output_grad->shape[1],
                                    output_grad->shape[2], output_grad->shape[3]);
     } else {
-        // Inference mode or no mask: scale gradients by (1-dropout_rate)
         memcpy(input_grad->data, output_grad->data, output_grad->size * sizeof(float));
         tensor_scale_inplace(input_grad, 1.0f - layer->dropout_rate);
     }

@@ -63,21 +63,17 @@ DropoutOutput* dropout_forward(Dropout* layer, Tensor* input) {
             return NULL;
         }
 
-        // Generate dropout mask and apply it
         for (int i = 0; i < input->size; ++i) {
             float rand_val = random_float();
             if (rand_val < layer->dropout_rate) {
-                // Drop this neuron
                 mask->data[i] = 0.0f;
                 output->data[i] = 0.0f;
             } else {
-                // Keep this neuron, scale by (1/(1-dropout_rate)) for variance preservation
                 mask->data[i] = 1.0f / (1.0f - layer->dropout_rate);
                 output->data[i] = input->data[i] * mask->data[i];
             }
         }
     } else {
-        // Inference mode or dropout_rate = 0: scale by (1-dropout_rate)
         memcpy(output->data, input->data, input->size * sizeof(float));
         tensor_scale_inplace(output, 1.0f - layer->dropout_rate);
     }
@@ -118,11 +114,9 @@ DropoutBackwardOutput* dropout_backward(Dropout* layer, DropoutOutput* forward_r
     if (!input_grad) return NULL;
 
     if (layer->training && forward_result->mask) {
-        // Training mode: use the dropout mask to route gradients
         dropout_apply_grad_mask(input_grad->data, output_grad->data,
                                     forward_result->mask->data, output_grad->size);
     } else {
-        // Inference mode or no mask: scale gradients by (1-dropout_rate)
         memcpy(input_grad->data, output_grad->data, output_grad->size * sizeof(float));
         tensor_scale_inplace(input_grad, 1.0f - layer->dropout_rate);
     }

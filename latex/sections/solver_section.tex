@@ -76,7 +76,7 @@ Soit $H$ la hauteur de la grille, $W$ sa largeur, $L$ la longueur du mot à cher
 \end{itemize}
 La complexité totale est donc dominée par l'étape de pré-calcul : $\mathcal{O}(H \cdot W \cdot L \cdot A)$. Cette approche est efficace car le coût de l'appariement de l'alphabet est payé une seule fois.
 
-\subsubsection{Solveur Exact contre Solveur Heuristique}
+\subsubsection{Comparaison avec un solveur heuristique}
 Notre algorithme est un \textbf{solveur exact}. Il est comparable à une recherche par force brute : il est plus lent mais garantit de trouver la réponse correcte en évaluant le score final de chaque chemin possible.
 
 Une approche alternative courante pour ce genre de problème utiliserait un arbre de préfixes (Trie) combiné à un algorithme de \textbf{recherche en faisceau (Beam Search)}. Cette méthode est un \textbf{solveur heuristique} : elle est beaucoup plus rapide, mais n'offre aucune garantie de trouver la meilleure solution. Pour notre projet, ce serait un mauvais choix.

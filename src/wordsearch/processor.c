@@ -226,11 +226,11 @@ int process_wordsearch_image(const char *image_path,
         fprintf(stderr, "Failed to extract cell images\n");
     }
 
-    if (create_reconstructed_grid(local_num_rows, local_num_cols, create_button_callback) !=
-        0)
-    {
-        fprintf(stderr, "Failed to create reconstructed grid\n");
-    }
+    // if (create_reconstructed_grid(local_num_rows, local_num_cols, create_button_callback) !=
+    //     0)
+    // {
+    //     fprintf(stderr, "Failed to create reconstructed grid\n");
+    // }
 
     printf("Extracted grid: %d rows x %d columns\n", local_num_rows, local_num_cols);
 

@@ -10,18 +10,14 @@
 #include <omp.h>
 #endif
 
-// Prefetch distance for cache optimization
 #define PREFETCH_DISTANCE 64
 
-// Highly optimized 3x3 convolution for stride=1, padding=1 (interior only)
-// Adds into output 8 pixels starting at out_w_start (requires 1 <= out_w_start <= output_width-9 and 1 <= out_h <= output_height-2)
 static inline void conv3x3_8pixels_avx2(
     float* __restrict output, const float* __restrict input, const float* __restrict kernel,
     int input_width, int input_height, int output_width, int out_h, int out_w_start
 ) {
-    (void)input_height; // unused in interior kernel
+    (void)input_height;
 
-    // Broadcast kernel
     __m256 k0 = _mm256_set1_ps(kernel[0]);
     __m256 k1 = _mm256_set1_ps(kernel[1]);
     __m256 k2 = _mm256_set1_ps(kernel[2]);
@@ -37,31 +33,25 @@ static inline void conv3x3_8pixels_avx2(
     const int in_row1 = (out_h     ) * input_width + (out_w_start - 1);
     const int in_row2 = (out_h + 1) * input_width + (out_w_start - 1);
 
-    // Prefetch input data for better cache performance
     _mm_prefetch(&input[in_row0 + PREFETCH_DISTANCE], _MM_HINT_T0);
     _mm_prefetch(&input[in_row1 + PREFETCH_DISTANCE], _MM_HINT_T0);
     _mm_prefetch(&input[in_row2 + PREFETCH_DISTANCE], _MM_HINT_T0);
     _mm_prefetch(&output[base_out + PREFETCH_DISTANCE], _MM_HINT_T0);
 
-    // Load existing output to accumulate into
     __m256 outv = _mm256_loadu_ps(&output[base_out]);
 
-    // Top row
     __m256 r0l = _mm256_loadu_ps(&input[in_row0 + 0]);
     __m256 r0c = _mm256_loadu_ps(&input[in_row0 + 1]);
     __m256 r0r = _mm256_loadu_ps(&input[in_row0 + 2]);
 
-    // Middle row
     __m256 r1l = _mm256_loadu_ps(&input[in_row1 + 0]);
     __m256 r1c = _mm256_loadu_ps(&input[in_row1 + 1]);
     __m256 r1r = _mm256_loadu_ps(&input[in_row1 + 2]);
 
-    // Bottom row
     __m256 r2l = _mm256_loadu_ps(&input[in_row2 + 0]);
     __m256 r2c = _mm256_loadu_ps(&input[in_row2 + 1]);
     __m256 r2r = _mm256_loadu_ps(&input[in_row2 + 2]);
 
-    // FMA accumulate
     outv = _mm256_fmadd_ps(r0l, k0, outv);
     outv = _mm256_fmadd_ps(r0c, k1, outv);
     outv = _mm256_fmadd_ps(r0r, k2, outv);
@@ -75,22 +65,17 @@ static inline void conv3x3_8pixels_avx2(
     _mm256_storeu_ps(&output[base_out], outv);
 }
 
-// Highly optimized 1x1 convolution using SIMD with loop unrolling
-// Accumulates into output (does not zero it)
 static inline void conv1x1_single_channel_simd(
     float* __restrict output, const float* __restrict input,
     float kernel_weight, int output_size
 ) {
     __m256 k_vec = _mm256_set1_ps(kernel_weight);
-    const size_t vec_end = (output_size / 32) * 32; // Process 32 elements per iteration (4x unrolled)
+    const size_t vec_end = (output_size / 32) * 32;
 
-    // Unrolled loop processing 32 elements per iteration
     for (size_t i = 0; i < vec_end; i += 32) {
-        // Prefetch next cache line for input and output
         _mm_prefetch(&input[i + PREFETCH_DISTANCE], _MM_HINT_T0);
         _mm_prefetch(&output[i + PREFETCH_DISTANCE], _MM_HINT_T0);
 
-        // Load inputs and outputs for 4 SIMD operations
         __m256 in_vec0 = _mm256_loadu_ps(&input[i]);
         __m256 in_vec1 = _mm256_loadu_ps(&input[i + 8]);
         __m256 in_vec2 = _mm256_loadu_ps(&input[i + 16]);
@@ -101,24 +86,20 @@ static inline void conv1x1_single_channel_simd(
         __m256 out_vec2 = _mm256_loadu_ps(&output[i + 16]);
         __m256 out_vec3 = _mm256_loadu_ps(&output[i + 24]);
 
-        // FMA operations
         out_vec0 = _mm256_fmadd_ps(in_vec0, k_vec, out_vec0);
         out_vec1 = _mm256_fmadd_ps(in_vec1, k_vec, out_vec1);
         out_vec2 = _mm256_fmadd_ps(in_vec2, k_vec, out_vec2);
         out_vec3 = _mm256_fmadd_ps(in_vec3, k_vec, out_vec3);
 
-        // Store results
         _mm256_storeu_ps(&output[i], out_vec0);
         _mm256_storeu_ps(&output[i + 8], out_vec1);
         _mm256_storeu_ps(&output[i + 16], out_vec2);
         _mm256_storeu_ps(&output[i + 24], out_vec3);
     }
 
-    // Handle remaining elements (up to 31 elements)
     const size_t remainder_start = vec_end;
     const size_t remainder_end = (output_size / 8) * 8;
 
-    // Process remaining full SIMD vectors (8 elements each)
     for (size_t i = remainder_start; i < remainder_end; i += 8) {
         __m256 in_vec = _mm256_loadu_ps(&input[i]);
         __m256 out_vec = _mm256_loadu_ps(&output[i]);
@@ -126,26 +107,21 @@ static inline void conv1x1_single_channel_simd(
         _mm256_storeu_ps(&output[i], out_vec);
     }
 
-    // Handle final remaining scalar elements
     for (size_t i = remainder_end; i < (size_t)output_size; ++i) {
         output[i] += input[i] * kernel_weight;
     }
 }
 
-// Optimized 3x3 convolution for single channel (stride=1, padding=1)
-// Accumulates into output (does not zero it)
 static inline void conv3x3_single_channel_optimized(
     float* __restrict output, const float* __restrict input, const float* __restrict kernel,
     int output_width, int output_height, int input_width, int input_height
 ) {
     for (int out_h = 0; out_h < output_height; ++out_h) {
         if (out_h > 0 && out_h < output_height - 1) {
-            // Left border (w=0)
             {
                 const int in_h_start = out_h;
                 const int in_w_start = 0;
                 float sum = 0.0f;
-                // Unrolled with boundary checks
                 int kh = -1, kw = -1;
                 if (in_h_start + kh >= 0 && (in_w_start + kw) >= 0) {
                     sum += input[(in_h_start + kh) * input_width + (in_w_start + kw)] * kernel[0];
@@ -171,19 +147,15 @@ static inline void conv3x3_single_channel_optimized(
                 output[out_h * output_width + 0] += sum;
             }
 
-            // Vectorized interior with loop unrolling (16 pixels at a time when possible)
             int out_w = 1;
             for (; out_w < output_width - 17; out_w += 16) {
-                // Process two blocks of 8 pixels each
                 conv3x3_8pixels_avx2(output, input, kernel, input_width, input_height, output_width, out_h, out_w);
                 conv3x3_8pixels_avx2(output, input, kernel, input_width, input_height, output_width, out_h, out_w + 8);
             }
-            // Process remaining blocks of 8 pixels
             for (; out_w < output_width - 9; out_w += 8) {
                 conv3x3_8pixels_avx2(output, input, kernel, input_width, input_height, output_width, out_h, out_w);
             }
 
-            // Tail and right border
             for (; out_w < output_width; ++out_w) {
                 const int in_h_start = out_h;
                 const int in_w_start = out_w;
@@ -217,7 +189,6 @@ static inline void conv3x3_single_channel_optimized(
                 output[out_h * output_width + out_w] += sum;
             }
         } else {
-            // Top or bottom border rows: scalar with full checks
             for (int out_w = 0; out_w < output_width; ++out_w) {
                 const int in_h_start = out_h;
                 const int in_w_start = out_w;
@@ -238,7 +209,6 @@ static inline void conv3x3_single_channel_optimized(
     }
 }
 
-// Generic SIMD convolution for other kernel sizes (fallback)
 static inline void conv_single_channel_simd(
     float* output, const float* input, const float* kernel,
     int output_width, int output_height, int input_width, int input_height,
@@ -276,7 +246,6 @@ Conv2D* conv2D_create(int input_channels, int output_channels, int kernel_size,
     conv->stride = stride;
     conv->padding = padding;
 
-    // Create weight tensor: [output_channels, input_channels, kernel_size, kernel_size]
     int weight_shape[] = {output_channels, input_channels, kernel_size, kernel_size};
     conv->weight = tensor_create(weight_shape, 4);
     if (!conv->weight) {
@@ -284,7 +253,6 @@ Conv2D* conv2D_create(int input_channels, int output_channels, int kernel_size,
         return NULL;
     }
 
-    // Create bias tensor: [output_channels, 1, 1, 1]
     int bias_shape[] = {output_channels, 1, 1, 1};
     conv->bias = tensor_create(bias_shape, 4);
     if (!conv->bias) {
@@ -293,7 +261,6 @@ Conv2D* conv2D_create(int input_channels, int output_channels, int kernel_size,
         return NULL;
     }
 
-    // Create gradient tensors with same shapes
     conv->weight_grad = tensor_create_zero(weight_shape, 4);
     if (!conv->weight_grad) {
         tensor_free(conv->weight);
@@ -311,10 +278,8 @@ Conv2D* conv2D_create(int input_channels, int output_channels, int kernel_size,
         return NULL;
     }
 
-    // Initialize weights using Xavier uniform initialization
     init_xavier_uniform(conv->weight);
 
-    // Initialize bias to zeros
     memset(conv->bias->data, 0, conv->bias->size * sizeof(float));
 
     return conv;
@@ -338,7 +303,6 @@ Tensor* conv2D_forward(Conv2D* conv, Tensor* input) {
     const int input_height = input->shape[2];
     const int input_width = input->shape[3];
 
-    // Calculate output dimensions
     const int output_height = (input_height + 2 * conv->padding - conv->kernel_size) / conv->stride + 1;
     const int output_width = (input_width + 2 * conv->padding - conv->kernel_size) / conv->stride + 1;
     const int output_channels = conv->weight->shape[0];
@@ -348,42 +312,35 @@ Tensor* conv2D_forward(Conv2D* conv, Tensor* input) {
         return NULL;
     }
 
-    // Create output tensor: [batch_size, output_channels, output_height, output_width]
     int output_shape[] = {batch_size, output_channels, output_height, output_width};
     Tensor* output = tensor_create(output_shape, 4);
     if (!output) return NULL;
 
-    // Process each batch and output channel (parallelizable)
     #pragma omp parallel for collapse(2) schedule(static) if (batch_size * output_channels > 1)
     for (int b = 0; b < batch_size; ++b) {
         for (int oc = 0; oc < output_channels; ++oc) {
             float* output_channel = &output->data[b * output_channels * output_width * output_height +
                                                  oc * output_width * output_height];
 
-            // Zero the output channel before accumulating
             memset(output_channel, 0, output_width * output_height * sizeof(float));
 
-            // For each input channel
             for (int ic = 0; ic < input_channels; ++ic) {
                 const float* kernel = &conv->weight->data[oc * input_channels * conv->kernel_size * conv->kernel_size +
                                                           ic * conv->kernel_size * conv->kernel_size];
                 const float* input_channel = &input->data[b * input_channels * input_width * input_height +
                                                          ic * input_width * input_height];
 
-                // Use optimized convolutions for common cases
                 if (conv->kernel_size == 3 && conv->stride == 1 && conv->padding == 1) {
                     conv3x3_single_channel_optimized(
                         output_channel, input_channel, kernel,
                         output_width, output_height, input_width, input_height
                     );
                 } else if (conv->kernel_size == 1 && conv->stride == 1 && conv->padding == 0) {
-                    // For 1x1 convolution, kernel is a single float value
                     const int output_elements = output_width * output_height;
                     conv1x1_single_channel_simd(
                         output_channel, input_channel, kernel[0], output_elements
                     );
                 } else {
-                    // Fallback to generic SIMD convolution
                     conv_single_channel_simd(
                         output_channel, input_channel, kernel,
                         output_width, output_height, input_width, input_height,
@@ -394,14 +351,12 @@ Tensor* conv2D_forward(Conv2D* conv, Tensor* input) {
         }
     }
 
-    // Add bias (broadcasting across spatial dimensions)
     for (int b = 0; b < batch_size; ++b) {
         for (int oc = 0; oc < output_channels; ++oc) {
             const float bias_val = conv->bias->data[oc];
             float* output_channel = &output->data[b * output_channels * output_width * output_height +
                                                   oc * output_width * output_height];
 
-            // Add bias to each position in the output channel (SIMD-optimized)
             __m256 bias_vec = _mm256_set1_ps(bias_val);
             const size_t out_size = (size_t)output_width * output_height;
 
@@ -411,7 +366,6 @@ Tensor* conv2D_forward(Conv2D* conv, Tensor* input) {
                     __m256 result_vec = _mm256_add_ps(current_vec, bias_vec);
                     _mm256_storeu_ps(&output_channel[i], result_vec);
                 } else {
-                    // Handle remaining elements
                     for (size_t j = i; j < out_size; ++j) {
                         output_channel[j] += bias_val;
                     }
@@ -424,7 +378,6 @@ Tensor* conv2D_forward(Conv2D* conv, Tensor* input) {
     return output;
 }
 
-// SIMD-optimized bias gradient computation
 static inline void compute_bias_grad_simd(float* __restrict bias_grad, const float* __restrict grad_output,
                                          int batch_size, int output_channels,
                                          int output_height, int output_width) {
@@ -451,7 +404,6 @@ static inline void compute_bias_grad_simd(float* __restrict bias_grad, const flo
     }
 }
 
-// Generic weight gradient computation for any kernel size
 static inline void compute_weight_grad_generic(float* __restrict weight_grad, const float* __restrict input, const float* __restrict grad_output,
                                              int batch_size, int input_channels, int output_channels,
                                              int input_height, int input_width,
@@ -803,7 +755,6 @@ Tensor* conv2D_backward(Conv2D* conv, Tensor* input, Tensor* grad_output) {
     const int output_height = grad_output->shape[2];
     const int output_width = grad_output->shape[3];
 
-    // Compute bias gradient (sum over batch, height, width for each output channel)
     compute_bias_grad_simd(conv->bias_grad->data, grad_output->data,
                           batch_size, output_channels, output_height, output_width);
 

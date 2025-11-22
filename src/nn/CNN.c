@@ -377,7 +377,6 @@ CNNForwardResult* cnn_forward(CNN* model, Tensor* input) {
         printf("Forward - Residual3 + SiLU: %.3f ms\n", TIME_DIFF(start_op, end_op));
     }
 
-    // Global average pooling instead of max pooling
     GET_TIME(start_op);
     result->gap_result = adaptive_avg_pool2d_forward(model->gap, result->silu3_residual);
     result->gap_out = result->gap_result->output;

@@ -42,11 +42,6 @@ int load_and_preprocess_image(const char *image_path, Image *image,
 
     adaptive_morphological_clean(image);
     save_image("step_03_5_morph_cleaned.png", image);
-    // if (create_button_callback) {
-    //     create_button_callback("Morphological Clean",
-    //     "step_03_5_morph_cleaned.png");
-    // }
-
     return 1;
 }
 

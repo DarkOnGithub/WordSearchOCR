@@ -7,7 +7,6 @@
 #include "../include/nn/layers/cross_entropy_loss.h"
 #include "../include/image/image.h"
 #include "../include/wordsearch/word_detection.h"
-#include "image/operations.h"
 
 Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
     if (!letters_path || !model || height <= 0 || width <= 0) {
@@ -325,9 +324,29 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
         words_array->capacity = word_count;
     }
 
-    // Process each word image
+    // First pass: collect all letters from all word images
+    typedef struct {
+        Tensor* letters;           // Shape: [num_letters, 28, 28]
+        Tensor* probabilities;     // Will be allocated later, shape: [num_letters, 26]
+        int letter_offset;         // Offset in the global batched input
+    } WordData;
+
+    WordData* word_data_array = (WordData*)malloc(sizeof(WordData) * word_count);
+    if (!word_data_array) {
+        fprintf(stderr, "Error: Failed to allocate word data array\n");
+        free(words_array->words);
+        free(words_array);
+        closedir(dir);
+        return NULL;
+    }
+
+    int total_letters = 0;
+    int word_idx = 0;
+
+    // Reset directory position for first pass
+    rewinddir(dir);
+
     while ((entry = readdir(dir)) != NULL) {
-        // Check if filename matches pattern "word_*.png" (but not individual letters)
         if (strncmp(entry->d_name, "word_", 5) == 0 &&
             strstr(entry->d_name, ".png") &&
             !strstr(entry->d_name, "letter")) {
@@ -356,67 +375,118 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
                 continue;
             }
 
-            // Create word probability tensor
-            int num_letters = word_letters->shape[0];
-            int prob_shape[] = {num_letters, 26};
-            Tensor* word_probabilities = tensor_create_zero(prob_shape, 2);
-            if (!word_probabilities) {
-                fprintf(stderr, "Warning: Failed to allocate word probability tensor for: %s\n", filepath);
-                tensor_free(word_letters);
-                free_image(&word_image);
-                continue;
-            }
+            // Store word data
+            word_data_array[word_idx].letters = word_letters;
+            word_data_array[word_idx].probabilities = NULL;
+            word_data_array[word_idx].letter_offset = total_letters;
 
-            // Process each letter
-            for (int i = 0; i < num_letters; i++) {
-                // Create CNN input tensor with shape [1, 1, 28, 28]
-                int cnn_shape[] = {1, 1, 28, 28};
-                Tensor* cnn_input = tensor_create_zero(cnn_shape, 4);
-                if (!cnn_input) {
-                    fprintf(stderr, "Warning: Failed to create CNN input tensor\n");
-                    continue;
+            total_letters += word_letters->shape[0];
+            word_idx++;
+
+            // Don't free word_letters yet - we need them for batching
+            free_image(&word_image);
+        }
+    }
+
+    // Now create batched CNN input for all letters
+    if (total_letters > 0) {
+        int batch_shape[] = {total_letters, 1, 28, 28};
+        Tensor* batched_input = tensor_create_zero(batch_shape, 4);
+        if (!batched_input) {
+            fprintf(stderr, "Error: Failed to create batched CNN input tensor\n");
+            // Clean up
+            for (int i = 0; i < word_idx; i++) {
+                if (word_data_array[i].letters) {
+                    tensor_free(word_data_array[i].letters);
                 }
+            }
+            free(word_data_array);
+            free(words_array->words);
+            free(words_array);
+            closedir(dir);
+            return NULL;
+        }
 
-                // Copy letter data from word_letters [num_letters, 28, 28] to cnn_input [1, 1, 28, 28]
-                // word_letters data layout: [letter0[0,0], letter0[0,1], ..., letter0[27,27], letter1[0,0], ...]
-                // cnn_input data layout: [batch0, channel0, y, x]
+        // Copy all letters into batched input
+        int global_letter_idx = 0;
+        for (int w = 0; w < word_idx; w++) {
+            Tensor* word_letters = word_data_array[w].letters;
+            int num_letters = word_letters->shape[0];
+
+            for (int i = 0; i < num_letters; i++) {
+                // Copy letter data from word_letters [num_letters, 28, 28] to batched_input [total_letters, 1, 28, 28]
                 for (int y = 0; y < 28; y++) {
                     for (int x = 0; x < 28; x++) {
                         float pixel_value = word_letters->data[i * 28 * 28 + y * 28 + x];
                         // Normalize from [0,1] to [-1,1]
                         pixel_value = (pixel_value - 0.5f) / 0.5f;
-                        // Store in CNN input tensor [0, 0, y, x]
-                        cnn_input->data[y * 28 + x] = pixel_value;
+                        // Store in batched input [global_letter_idx, 0, y, x]
+                        int batch_idx = global_letter_idx * 28 * 28 + y * 28 + x;
+                        batched_input->data[batch_idx] = pixel_value;
                     }
                 }
+                global_letter_idx++;
+            }
+        }
 
-                CNNForwardResult* forward_result = cnn_forward(model, cnn_input);
-                if (!forward_result) {
-                    fprintf(stderr, "Warning: CNN forward pass failed\n");
-                    tensor_free(cnn_input);
-                    continue;
+        // Run batched CNN forward pass
+        CNNForwardResult* batch_forward_result = cnn_forward(model, batched_input);
+        if (!batch_forward_result) {
+            fprintf(stderr, "Error: Batched CNN forward pass failed\n");
+            tensor_free(batched_input);
+            // Clean up
+            for (int i = 0; i < word_idx; i++) {
+                if (word_data_array[i].letters) {
+                    tensor_free(word_data_array[i].letters);
                 }
+            }
+            free(word_data_array);
+            free(words_array->words);
+            free(words_array);
+            closedir(dir);
+            return NULL;
+        }
 
-                // Apply softmax to get probabilities
-                Tensor* softmax_output = softmax(forward_result->fc2_out);
-                if (!softmax_output) {
-                    fprintf(stderr, "Warning: Softmax failed\n");
-                    cnn_forward_result_free(forward_result);
-                    tensor_free(cnn_input);
-                    continue;
+        // Apply softmax to get probabilities for all letters at once
+        Tensor* batch_softmax_output = softmax(batch_forward_result->fc2_out);
+        if (!batch_softmax_output) {
+            fprintf(stderr, "Error: Batch softmax failed\n");
+            cnn_forward_result_free(batch_forward_result);
+            tensor_free(batched_input);
+            // Clean up
+            for (int i = 0; i < word_idx; i++) {
+                if (word_data_array[i].letters) {
+                    tensor_free(word_data_array[i].letters);
                 }
+            }
+            free(word_data_array);
+            free(words_array->words);
+            free(words_array);
+            closedir(dir);
+            return NULL;
+        }
 
-                // Store probabilities in word tensor
-                // Shape is [num_letters, 26], so index = letter_idx * 26 + class
+        // Distribute results back to individual words
+        for (int w = 0; w < word_idx; w++) {
+            Tensor* word_letters = word_data_array[w].letters;
+            int num_letters = word_letters->shape[0];
+            int letter_offset = word_data_array[w].letter_offset;
+
+            // Create word probability tensor
+            int prob_shape[] = {num_letters, 26};
+            Tensor* word_probabilities = tensor_create_zero(prob_shape, 2);
+            if (!word_probabilities) {
+                fprintf(stderr, "Warning: Failed to allocate word probability tensor\n");
+                continue;
+            }
+
+            // Copy probabilities from batch result
+            for (int i = 0; i < num_letters; i++) {
+                int global_letter_idx = letter_offset + i;
                 int base_idx = i * 26;
                 for (int c = 0; c < 26; c++) {
-                    word_probabilities->data[base_idx + c] = softmax_output->data[c];
+                    word_probabilities->data[base_idx + c] = batch_softmax_output->data[global_letter_idx * 26 + c];
                 }
-
-                // Clean up
-                tensor_free(softmax_output);
-                cnn_forward_result_free(forward_result);
-                tensor_free(cnn_input);
             }
 
             // Create Word structure
@@ -427,11 +497,22 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
             words_array->words[words_array->count] = word_struct;
             words_array->count++;
 
-            // Clean up
-            tensor_free(word_letters);
-            free_image(&word_image);
+            word_data_array[w].probabilities = word_probabilities;
+        }
+
+        // Clean up batch processing resources
+        tensor_free(batch_softmax_output);
+        cnn_forward_result_free(batch_forward_result);
+        tensor_free(batched_input);
+    }
+
+    // Clean up word data array and individual letter tensors
+    for (int i = 0; i < word_idx; i++) {
+        if (word_data_array[i].letters) {
+            tensor_free(word_data_array[i].letters);
         }
     }
+    free(word_data_array);
 
     closedir(dir);
     return words_array;

@@ -5,14 +5,12 @@ SRC_DIR = src
 TARGET = $(BUILD_DIR)/$(PROJECT_NAME)
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -g -mavx2 -mfma -fopenmp -Iinclude
+CFLAGS = -Wall -Wextra -std=c99 -g -mavx2 -mfma -fopenmp -Iinclude -O3 -march=native -flto -ffast-math -funroll-loops
 LDFLAGS = -lm -fopenmp
 
-# Training-specific optimization flags for maximum performance
 TRAIN_CFLAGS = -O3 -march=native -flto -ffast-math -funroll-loops -mavx2 -mfma -fopenmp -DNDEBUG -Iinclude $(GTK_CFLAGS) -fopt-info-vec -fopt-info-inline
 TRAIN_LDFLAGS = -O3 -flto -lm -fopenmp $(GTK_LIBS)
 
-# Profiling flags for gprof
 PROFILE_CFLAGS = -pg -g -O2 -mavx2 -mfma -Iinclude
 PROFILE_LDFLAGS = -pg -lm
 

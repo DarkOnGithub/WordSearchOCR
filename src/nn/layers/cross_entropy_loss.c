@@ -46,8 +46,6 @@ void cross_entropy_loss_free(CrossEntropyLoss* loss) {
     }
 }
 
-// Compute softmax along the last dimension
-// Handles both 2D (batch_size, num_classes) and 4D inputs
 Tensor* softmax(Tensor* input) {
     if (!input) return NULL;
 
@@ -68,7 +66,6 @@ Tensor* softmax(Tensor* input) {
 
     #pragma omp parallel for schedule(static) if (batch_size > 1)
     for (int b = 0; b < batch_size; b++) {
-        // Find max value for numerical stability
         __m256 max_vec = _mm256_set1_ps(-INFINITY);
         int i = 0;
         int idx = b * num_classes;
@@ -86,7 +83,6 @@ Tensor* softmax(Tensor* input) {
             }
         }
 
-        // Compute exp(x - max) and sum with numerical stability
         __m256 sum_vec = _mm256_setzero_ps();
         int idx_base = b * num_classes;
 
@@ -99,7 +95,6 @@ Tensor* softmax(Tensor* input) {
             float exp_vals[8];
             _mm256_storeu_ps(exp_vals, shifted_vec);
             for (int k = 0; k < 8; k++) {
-                // Clamp to prevent overflow/underflow
                 if (exp_vals[k] > 80.0f) exp_vals[k] = 80.0f;
                 if (exp_vals[k] < -80.0f) exp_vals[k] = -80.0f;
                 exp_vals[k] = expf(exp_vals[k]);
@@ -114,7 +109,6 @@ Tensor* softmax(Tensor* input) {
 
         for (; j < num_classes; j++) {
             float shifted_val = input->data[idx_base + j] - max_val;
-            // Clamp to prevent overflow/underflow
             if (shifted_val > 80.0f) shifted_val = 80.0f;
             if (shifted_val < -80.0f) shifted_val = -80.0f;
             float exp_val = expf(shifted_val);
@@ -122,12 +116,10 @@ Tensor* softmax(Tensor* input) {
             sum_exp += exp_val;
         }
 
-        // Ensure sum_exp is not zero (shouldn't happen with clamping, but safety check)
         if (sum_exp < 1e-20f) {
             sum_exp = 1e-20f;
         }
 
-        // Normalize by sum
         __m256 sum_inv_vec = _mm256_set1_ps(1.0f / sum_exp);
         int idx_norm = b * num_classes;
         int m = 0;
@@ -174,7 +166,6 @@ CrossEntropyOutput* cross_entropy_loss_forward(CrossEntropyLoss* loss, Tensor* i
         return NULL;
     }
 
-    // Compute negative log likelihood
     float total_loss = 0.0f;
     for (int b = 0; b < batch_size; b++) {
         int target_class = (int)targets->data[b];
@@ -187,7 +178,6 @@ CrossEntropyOutput* cross_entropy_loss_forward(CrossEntropyLoss* loss, Tensor* i
         int idx = b * num_classes + target_class;
         float prob = softmax_output->data[idx];
 
-        // Add small epsilon for numerical stability
         if (prob < 1e-7f) {
             prob = 1e-7f;
         }
@@ -258,7 +248,6 @@ CrossEntropyBackwardOutput* cross_entropy_loss_backward(CrossEntropyLoss* loss,
         return NULL;
     }
 
-    // Initialize gradient to softmax probabilities
     int i = 0;
     for (; i <= input_grad->size - 8; i += 8) {
         __m256 softmax_vec = _mm256_loadu_ps(&forward_result->softmax_output->data[i]);
@@ -269,17 +258,13 @@ CrossEntropyBackwardOutput* cross_entropy_loss_backward(CrossEntropyLoss* loss,
         input_grad->data[i] = forward_result->softmax_output->data[i];
     }
 
-    // Subtract one-hot targets: grad = softmax - one_hot(targets)
     for (int b = 0; b < batch_size; b++) {
         int target_class = (int)forward_result->targets->data[b];
         int idx = b * num_classes + target_class;
         input_grad->data[idx] -= 1.0f;
     }
 
-    // Scale by output gradient and divide by batch_size for averaged loss
-    // Note: loss is already averaged over batch in forward pass,
-    // so gradients must also be averaged for consistency
-    float grad_scale = 1.0f / batch_size;  // Average over batch
+    float grad_scale = 1.0f / batch_size;
     if (output_grad && output_grad->size > 0) {
         grad_scale *= output_grad->data[0];
     }

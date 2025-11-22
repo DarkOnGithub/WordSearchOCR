@@ -55,25 +55,33 @@
 }
 \makeatother
 
-\title{\vspace{-3.0cm}
-\rule{0.65\linewidth}{3pt}\\[0.7em]  % Upper line, 2pt thick
-OCR Word Search Solver\\[0.5em]
-\rule{0.65\linewidth}{1pt}           % Lower line, 1pt thick
-}
+\begin{document}
 
-\author{
+\begin{titlepage}
+    \centering
+    \vspace*{\fill}
+
+    {\huge
+    \rule{0.65\linewidth}{3pt}\\[0.7em]  % Upper line, 2pt thick
+    OCR Word Search Solver\\[0.5em]
+    \rule{0.65\linewidth}{1pt}           % Lower line, 1pt thick
+    }
+
+    \vspace{2cm}
+
     \begin{tabular}{cc}
         \small\textbf{Alexandre Joaquim Lima Salgueiro} & \small\textbf{Hugo Guyennet} \\
         \small\texttt{alexandre-joaquim.lima-salgueiro} & \small\texttt{hugo.guyennet} \\[2ex]
         \small\textbf{Léa-Angélina Kolmerschlag} & \small\textbf{Tom Huynh} \\
         \small\texttt{lea-angelina.kolmerschlag} & \small\texttt{tom.huynh}
     \end{tabular}
-}
 
-\date{4 novembre 2025}
+    \vspace{1cm}
 
-\begin{document}
-\maketitle
+    4 novembre 2025
+
+    \vspace*{\fill}
+\end{titlepage}
 
 \begin{spacing}{0.9}
 \newpage
@@ -92,6 +100,10 @@ OCR Word Search Solver\\[0.5em]
 \input{sections/training_section}
 \newpage
 \input{sections/solver_section}
-
+\newpage
+\section*{Bibliographie}
+\nocite{*}
+\bibliographystyle{plain}
+\bibliography{sections/bibliography2}
 
 \end{document}

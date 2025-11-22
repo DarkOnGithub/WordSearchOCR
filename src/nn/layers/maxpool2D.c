@@ -21,7 +21,6 @@ static __attribute__((always_inline)) inline void find_kernel_max(const float* i
             int ih = ih_start + kh * dilation_h;
             int iw = iw_start + kw * dilation_w;
 
-            // Check if the pixel is within the valid input bounds
             if (ih >= 0 && ih < height && iw >= 0 && iw < width) {
                 int input_idx = batch_offset + channel_offset + ih * height_stride + iw;
                 float val = input_data[input_idx];
@@ -76,7 +75,6 @@ void maxpool2d_free(MaxPool2D* layer) {
 void maxpool2d_get_output_dims(MaxPool2D* layer, int input_h, int input_w,
                               int* output_h, int* output_w) {
     if (layer->ceil_mode) {
-        // Use ceil mode: allow sliding windows to go off-bounds if they start within padding
         *output_h = (int)ceil((double)(input_h + 2 * layer->padding_h -
                                        layer->dilation_h * (layer->kernel_size_h - 1) - 1) /
                               layer->stride_h) + 1;
@@ -84,7 +82,6 @@ void maxpool2d_get_output_dims(MaxPool2D* layer, int input_h, int input_w,
                                        layer->dilation_w * (layer->kernel_size_w - 1) - 1) /
                               layer->stride_w) + 1;
     } else {
-        // Standard floor mode
         *output_h = (int)floor((double)(input_h + 2 * layer->padding_h -
                                         layer->dilation_h * (layer->kernel_size_h - 1) - 1) /
                                layer->stride_h) + 1;
@@ -123,7 +120,6 @@ MaxPool2DOutput* maxpool2d_forward(MaxPool2D* layer, Tensor* input) {
     int output_channel_stride = output_h * output_w;
     int output_batch_stride = channels * output_channel_stride;
 
-    // Precompute constants for better performance
     const int dilation_h = layer->dilation_h;
     const int dilation_w = layer->dilation_w;
     const int kernel_h = layer->kernel_size_h;
@@ -133,7 +129,6 @@ MaxPool2DOutput* maxpool2d_forward(MaxPool2D* layer, Tensor* input) {
     const int padding_h = layer->padding_h;
     const int padding_w = layer->padding_w;
 
-    // Optimized loop with better memory access patterns and OpenMP parallelization
     #pragma omp parallel for collapse(2)
     for (int b = 0; b < batch_size; ++b) {
         for (int c = 0; c < channels; ++c) {
@@ -145,10 +140,8 @@ MaxPool2DOutput* maxpool2d_forward(MaxPool2D* layer, Tensor* input) {
                 const int ih_start = oh * stride_h - padding_h;
                 const int output_row_base = output_base_idx + oh * output_w;
 
-                // Process output positions in row with some unrolling for small widths
                 int ow = 0;
                 for (; ow <= output_w - 4; ow += 4) {
-                    // Unroll 4 iterations for better ILP
                     for (int k = 0; k < 4; ++k) {
                         const int ow_k = ow + k;
                         const int iw_start = ow_k * stride_w - padding_w;
@@ -169,7 +162,6 @@ MaxPool2DOutput* maxpool2d_forward(MaxPool2D* layer, Tensor* input) {
                     }
                 }
 
-                // Handle remaining elements
                 for (; ow < output_w; ++ow) {
                     const int iw_start = ow * stride_w - padding_w;
 
@@ -235,7 +227,6 @@ MaxPool2DBackwardOutput* maxpool2d_backward(MaxPool2D* layer, MaxPool2DOutput* f
     int out_width = forward_result->output->shape[3];
 
     if (forward_result->indices && layer->return_indices) {
-        // Fast path: Use indices for direct gradient routing with OpenMP parallelization
         #pragma omp parallel for collapse(4)
         for (int b = 0; b < out_batch; ++b) {
             for (int c = 0; c < out_channels; ++c) {
@@ -246,10 +237,8 @@ MaxPool2DBackwardOutput* maxpool2d_backward(MaxPool2D* layer, MaxPool2DOutput* f
                                        oh * out_width + ow;
                         float grad_val = output_grad->data[output_idx];
 
-                        // Get the input index where the maximum came from
                         int input_linear_idx = (int)forward_result->indices->data[output_idx];
 
-                        // MUST be atomic to prevent race conditions
                         #pragma omp atomic
                         input_grad->data[input_linear_idx] += grad_val;
                     }
@@ -257,9 +246,6 @@ MaxPool2DBackwardOutput* maxpool2d_backward(MaxPool2D* layer, MaxPool2DOutput* f
             }
         }
     } else {
-        // Slow path: No indices available, need to recompute maximum positions
-        // Optimized version with same loop structure as forward pass
-
         Tensor* input = forward_result->input;
         const int in_batch = input->shape[0];
         const int in_channels = input->shape[1];
@@ -271,7 +257,6 @@ MaxPool2DBackwardOutput* maxpool2d_backward(MaxPool2D* layer, MaxPool2DOutput* f
         const int out_channel_stride = out_height * out_width;
         const int out_batch_stride = out_channels * out_channel_stride;
 
-        // Precompute constants
         const int dilation_h = layer->dilation_h;
         const int dilation_w = layer->dilation_w;
         const int kernel_h = layer->kernel_size_h;
@@ -292,7 +277,6 @@ MaxPool2DBackwardOutput* maxpool2d_backward(MaxPool2D* layer, MaxPool2DOutput* f
                     const int ih_start = oh * stride_h - padding_h;
                     const int output_row_base = output_base_idx + oh * out_width;
 
-                    // Process output positions in row with unrolling
                     int ow = 0;
                     for (; ow <= out_width - 4; ow += 4) {
                         for (int k = 0; k < 4; ++k) {
@@ -309,14 +293,12 @@ MaxPool2DBackwardOutput* maxpool2d_backward(MaxPool2D* layer, MaxPool2DOutput* f
                                            &max_val, &max_linear_idx);
 
                             if (max_linear_idx != -1) {
-                                // MUST be atomic here too
                                 #pragma omp atomic
                                 input_grad->data[max_linear_idx] += grad_val;
                             }
                         }
                     }
 
-                    // Handle remaining elements
                     for (; ow < out_width; ++ow) {
                         const int iw_start = ow * stride_w - padding_w;
                         const int output_idx = output_row_base + ow;
@@ -330,7 +312,6 @@ MaxPool2DBackwardOutput* maxpool2d_backward(MaxPool2D* layer, MaxPool2DOutput* f
                                        &max_val, &max_linear_idx);
 
                         if (max_linear_idx != -1) {
-                            // MUST be atomic here too
                             #pragma omp atomic
                             input_grad->data[max_linear_idx] += grad_val;
                         }

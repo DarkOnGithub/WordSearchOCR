@@ -173,11 +173,10 @@ LinearBackwardOutput* linear_backward(Linear* layer, LinearOutput* forward_resul
     Tensor* input_grad = tensor_create(input_grad_shape, 2);
     if (!input_grad) return NULL;
 
-    // Compute weight gradients: dL/dW = input.T @ output_grad
     if (layer->layer_grad->weight_grad) {
-        const int M = layer->input_size;  // rows of result
-        const int K = batch_size;         // inner dimension
-        const int N = layer->output_size; // cols of result
+        const int M = layer->input_size;
+        const int K = batch_size;
+        const int N = layer->output_size;
 
         memset(layer->layer_grad->weight_grad->data, 0, layer->layer_grad->weight_grad->size * sizeof(float));
 
@@ -190,7 +189,6 @@ LinearBackwardOutput* linear_backward(Linear* layer, LinearOutput* forward_resul
                 const float input_val = input_row[m];
                 float* weight_row = &layer->layer_grad->weight_grad->data[m * N];
 
-                // Multiply-add across output features
                 __m256 input_broadcast = _mm256_set1_ps(input_val);
 
                 int n = 0;
@@ -208,34 +206,27 @@ LinearBackwardOutput* linear_backward(Linear* layer, LinearOutput* forward_resul
         }
     }
 
-    // Bias gradients: sum over batch dimension
     Tensor* bias_grad_sum = tensor_sum_axis(output_grad, 0);
     if (bias_grad_sum) {
         memcpy(layer->layer_grad->bias_grad->data, bias_grad_sum->data,
                layer->output_size * sizeof(float));
         tensor_free(bias_grad_sum);
     }
-    // Input gradients: dL/dx = output_grad @ weights.T
-    const int M = batch_size;       // rows of result
-    const int K = layer->output_size; // inner dimension
-    const int N = layer->input_size;  // cols of result
+    const int M = batch_size;
+    const int K = layer->output_size;
+    const int N = layer->input_size;
 
     #pragma omp parallel for schedule(static)
     for (int m = 0; m < M; ++m) {
-        const float* grad_row = &output_grad->data[m * K]; // grad_out[m, :]
-        float* input_row = &input_grad->data[m * N];      // dL/dX[m, :]
+        const float* grad_row = &output_grad->data[m * K];
+        float* input_row = &input_grad->data[m * N];
 
-        // We want: dL/dX[m, n] = sum_k(grad_out[m, k] * W[n, k])
-        for (int n = 0; n < N; ++n) { // Loop over input features (n)
-
-            // Get the pointer to the n-th row of the weight matrix
-            // This is W[n, :], which has length output_size (K)
+        for (int n = 0; n < N; ++n) {
             const float* weight_row = &layer->layer_grad->weights->data[n * K];
 
             float sum = 0.0f;
             __m256 sum_vec = _mm256_setzero_ps();
 
-            // Perform the dot product
             int k = 0;
             for (; k <= K - 8; k += 8) {
                 __m256 grad_vec = _mm256_loadu_ps(&grad_row[k]);
@@ -243,7 +234,6 @@ LinearBackwardOutput* linear_backward(Linear* layer, LinearOutput* forward_resul
                 sum_vec = _mm256_fmadd_ps(grad_vec, weight_vec, sum_vec);
             }
 
-            // Horizontal sum of the AVX register
             float temp[8];
             _mm256_storeu_ps(temp, sum_vec);
             sum = temp[0] + temp[1] + temp[2] + temp[3] +

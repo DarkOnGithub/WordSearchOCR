@@ -6,9 +6,6 @@
 #include <string.h>
 
 static inline __m256 exp256_ps(__m256 x) {
-    // Temporary stable implementation using scalar expf for correctness
-    // TODO: Replace with optimized vectorized exp implementation (e.g., Intel SVML)
-    // For some unknown reason, the SIMD part isn't working correctly
     float buffer[8];
     _mm256_storeu_ps(buffer, x);
     for (int i = 0; i < 8; ++i) {
