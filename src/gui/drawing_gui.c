@@ -7,6 +7,8 @@
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 
 #define CANVAS_SIZE 392
 #define GRID_SIZE 28
@@ -15,7 +17,8 @@
 static guchar canvas_data[GRID_SIZE * GRID_SIZE];
 static gboolean is_drawing = FALSE;
 static gdouble last_x = -1, last_y = -1;
-static int pen_size = 1;
+static int pen_size = 2;
+static int noise_level = 0;
 
 static GtkWidget *main_window;
 static GtkWidget *drawing_area;
@@ -24,6 +27,9 @@ static GtkWidget *confidence_label;
 static GtkWidget *probabilities_box;
 static GtkWidget *prob_labels[26];
 static GtkWidget *prob_bars[26];
+static GtkWidget *small_pen_button;
+static GtkWidget *large_pen_button;
+static GtkWidget *noise_scale;
 
 static CNN *model = NULL;
 
@@ -35,7 +41,9 @@ static gboolean on_button_release(GtkWidget *widget, GdkEventButton *event, gpoi
 static gboolean on_motion_notify(GtkWidget *widget, GdkEventMotion *event, gpointer data);
 static void on_clear_clicked(GtkWidget *widget, gpointer data);
 static void on_predict_clicked(GtkWidget *widget, gpointer data);
-static void on_pen_size_changed(GtkWidget *widget, gpointer data);
+static void on_small_pen_toggled(GtkWidget *widget, gpointer data);
+static void on_large_pen_toggled(GtkWidget *widget, gpointer data);
+static void on_noise_level_changed(GtkWidget *widget, gpointer data);
 static void draw_point(int x, int y, int brush_size);
 static void draw_line(int x0, int y0, int x1, int y1, int brush_size);
 static void load_drawing_css(void);
@@ -129,20 +137,48 @@ static void load_drawing_css(void)
         "  background: linear-gradient(180deg, #28b878 0%, #1a9d65 100%);\n"
         "}\n"
         "\n"
-        ".pen-size-scale {\n"
+        ".pen-size-button {\n"
+        "  background: linear-gradient(180deg, #1a2035 0%, #242d48 100%);\n"
+        "  border: 1px solid #3b5bdb;\n"
+        "  color: #82aaff;\n"
+        "  border-radius: 8px;\n"
+        "  padding: 8px 16px;\n"
+        "  font-weight: 600;\n"
+        "  font-size: 12px;\n"
+        "  min-width: 60px;\n"
+        "  transition: all 0.2s ease;\n"
+        "}\n"
+        "\n"
+        ".pen-size-button:hover {\n"
+        "  background: linear-gradient(180deg, #242d48 0%, #2d3748 100%);\n"
+        "  border-color: #5c7cfa;\n"
+        "}\n"
+        "\n"
+        ".pen-size-button:checked {\n"
+        "  background: linear-gradient(180deg, #3b5bdb 0%, #5c7cfa 100%);\n"
+        "  border-color: #242d48;\n"
+        "  color: #ffffff;\n"
+        "  box-shadow: 0 2px 8px rgba(59, 91, 219, 0.4);\n"
+        "}\n"
+        "\n"
+        ".pen-size-button:checked:hover {\n"
+        "  background: linear-gradient(180deg, #5c7cfa 0%, #74a4ff 100%);\n"
+        "}\n"
+        "\n"
+        ".noise-scale {\n"
         "  color: #82aaff;\n"
         "  font-size: 12px;\n"
         "  font-weight: 600;\n"
         "}\n"
         "\n"
-        ".pen-size-scale trough {\n"
+        ".noise-scale trough {\n"
         "  background-color: #1a2035;\n"
         "  border: 1px solid #3b5bdb;\n"
         "  border-radius: 4px;\n"
         "  min-height: 8px;\n"
         "}\n"
         "\n"
-        ".pen-size-scale slider {\n"
+        ".noise-scale slider {\n"
         "  background: linear-gradient(180deg, #3b5bdb 0%, #5c7cfa 100%);\n"
         "  border: 1px solid #242d48;\n"
         "  border-radius: 50%;\n"
@@ -151,11 +187,11 @@ static void load_drawing_css(void)
         "  margin: -4px;\n"
         "}\n"
         "\n"
-        ".pen-size-scale slider:hover {\n"
+        ".noise-scale slider:hover {\n"
         "  background: linear-gradient(180deg, #5c7cfa 0%, #74a4ff 100%);\n"
         "}\n"
         "\n"
-        ".pen-size-scale highlight {\n"
+        ".noise-scale highlight {\n"
         "  background: linear-gradient(90deg, #3b5bdb 0%, #5c7cfa 100%);\n"
         "  border-radius: 4px;\n"
         "}\n"
@@ -183,18 +219,48 @@ static void load_drawing_css(void)
     g_object_set(settings, "gtk-application-prefer-dark-theme", TRUE, NULL);
 }
 
+
+static void apply_noise_to_prediction_data(guchar *prediction_canvas)
+{
+    if (noise_level == 0) return;
+
+    double normalized_level = (double)noise_level / 100.0;
+    int num_noise_points = (int)((normalized_level * normalized_level) * GRID_SIZE * GRID_SIZE * 0.5);
+
+    for (int i = 0; i < num_noise_points; i++) {
+        int x = rand() % GRID_SIZE;
+        int y = rand() % GRID_SIZE;
+        int index = y * GRID_SIZE + x;
+        guchar gray_level = (guchar)((double)rand() / RAND_MAX * 180);
+        prediction_canvas[index] = gray_level;
+    }
+}
+
 static void clear_canvas(void)
 {
     memset(canvas_data, 0, sizeof(canvas_data));
+    noise_level = 0;
 
-    gtk_label_set_text(GTK_LABEL(result_label), "?");
-    gtk_label_set_text(GTK_LABEL(confidence_label), "Draw a letter and click Predict");
-
-    for (int i = 0; i < 26; i++) {
-        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(prob_bars[i]), 0.0);
+    if (result_label && GTK_IS_LABEL(result_label)) {
+        gtk_label_set_text(GTK_LABEL(result_label), "?");
+    }
+    if (confidence_label && GTK_IS_LABEL(confidence_label)) {
+        gtk_label_set_text(GTK_LABEL(confidence_label), "Draw a letter and click Predict");
     }
 
-    gtk_widget_queue_draw(drawing_area);
+    for (int i = 0; i < 26; i++) {
+        if (prob_bars[i] && GTK_IS_PROGRESS_BAR(prob_bars[i])) {
+            gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(prob_bars[i]), 0.0);
+        }
+    }
+
+    if (noise_scale && GTK_IS_RANGE(noise_scale)) {
+        gtk_range_set_value(GTK_RANGE(noise_scale), 0.0);
+    }
+
+    if (drawing_area && GTK_IS_WIDGET(drawing_area)) {
+        gtk_widget_queue_draw(drawing_area);
+    }
 }
 
 static void draw_point(int grid_x, int grid_y, int brush_size)
@@ -262,12 +328,24 @@ static gboolean on_draw(GtkWidget *widget, cairo_t *cr, gpointer data)
     for (int y = 0; y < GRID_SIZE; y++) {
         for (int x = 0; x < GRID_SIZE; x++) {
             guchar val = canvas_data[y * GRID_SIZE + x];
-            if (val > 0) {
-                double gray = 1.0 - (val / 255.0);
-                cairo_set_source_rgb(cr, gray, gray, gray);
-                cairo_rectangle(cr, x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
-                cairo_fill(cr);
-            }
+            double gray = 1.0 - (val / 255.0);
+            cairo_set_source_rgb(cr, gray, gray, gray);
+            cairo_rectangle(cr, x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+            cairo_fill(cr);
+        }
+    }
+
+    if (noise_level > 0) {
+        double normalized_level = (double)noise_level / 100.0;
+        int num_noise_points = (int)((normalized_level * normalized_level) * GRID_SIZE * GRID_SIZE * 0.5);
+
+        for (int i = 0; i < num_noise_points; i++) {
+            int x = rand() % GRID_SIZE;
+            int y = rand() % GRID_SIZE;
+            double gray_level = (double)rand() / RAND_MAX * 0.7;
+            cairo_set_source_rgb(cr, gray_level, gray_level, gray_level);
+            cairo_rectangle(cr, x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+            cairo_fill(cr);
         }
     }
 
@@ -353,11 +431,40 @@ static void on_clear_clicked(GtkWidget *widget, gpointer data)
     clear_canvas();
 }
 
-static void on_pen_size_changed(GtkWidget *widget, gpointer data)
+static void on_small_pen_toggled(GtkWidget *widget, gpointer data)
 {
     (void)widget;
     (void)data;
-    pen_size = (int)gtk_range_get_value(GTK_RANGE(widget));
+    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+        pen_size = 1;
+        // Turn off the large button
+        g_signal_handlers_block_by_func(large_pen_button, on_large_pen_toggled, NULL);
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(large_pen_button), FALSE);
+        g_signal_handlers_unblock_by_func(large_pen_button, on_large_pen_toggled, NULL);
+    }
+}
+
+static void on_large_pen_toggled(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+        pen_size = 2;
+        // Turn off the small button
+        g_signal_handlers_block_by_func(small_pen_button, on_small_pen_toggled, NULL);
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(small_pen_button), FALSE);
+        g_signal_handlers_unblock_by_func(small_pen_button, on_small_pen_toggled, NULL);
+    }
+}
+
+static void on_noise_level_changed(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    noise_level = (int)gtk_range_get_value(GTK_RANGE(widget));
+    if (drawing_area && GTK_IS_WIDGET(drawing_area)) {
+        gtk_widget_queue_draw(drawing_area);
+    }
 }
 
 static void predict_letter(void)
@@ -377,9 +484,13 @@ static void predict_letter(void)
         return;
     }
 
+    guchar prediction_canvas[GRID_SIZE * GRID_SIZE];
+    memcpy(prediction_canvas, canvas_data, sizeof(canvas_data));
+    apply_noise_to_prediction_data(prediction_canvas);
+
     for (int y = 0; y < 28; y++) {
         for (int x = 0; x < 28; x++) {
-            float pixel_value = 1.0f - ((float)canvas_data[y * 28 + x] / 255.0f);
+            float pixel_value = 1.0f - ((float)prediction_canvas[y * 28 + x] / 255.0f);
             pixel_value = (pixel_value - 0.5f) / 0.5f;
             input->data[y * 28 + x] = pixel_value;
         }
@@ -422,7 +533,9 @@ static void predict_letter(void)
     gtk_label_set_text(GTK_LABEL(confidence_label), confidence_text);
 
     for (int i = 0; i < 26; i++) {
-        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(prob_bars[i]), probs->data[i]);
+        if (prob_bars[i] && GTK_IS_PROGRESS_BAR(prob_bars[i])) {
+            gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(prob_bars[i]), probs->data[i]);
+        }
     }
 
     tensor_free(probs);
@@ -451,6 +564,7 @@ int main_drawing_gui(int argc, char *argv[])
     cnn_eval(model);
     printf("CNN model loaded successfully.\n");
 
+    srand(time(NULL));
     clear_canvas();
 
     main_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -500,13 +614,33 @@ int main_drawing_gui(int argc, char *argv[])
     gtk_style_context_add_class(gtk_widget_get_style_context(pen_size_label), "section-label");
     gtk_box_pack_start(GTK_BOX(pen_size_box), pen_size_label, FALSE, FALSE, 0);
 
-    GtkWidget *pen_size_scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 1, 2, 1);
-    gtk_scale_set_value_pos(GTK_SCALE(pen_size_scale), GTK_POS_RIGHT);
-    gtk_range_set_value(GTK_RANGE(pen_size_scale), pen_size);
-    gtk_widget_set_size_request(pen_size_scale, 120, -1);
-    gtk_style_context_add_class(gtk_widget_get_style_context(pen_size_scale), "pen-size-scale");
-    g_signal_connect(pen_size_scale, "value-changed", G_CALLBACK(on_pen_size_changed), NULL);
-    gtk_box_pack_start(GTK_BOX(pen_size_box), pen_size_scale, FALSE, FALSE, 0);
+    small_pen_button = gtk_toggle_button_new_with_label("Small");
+    gtk_style_context_add_class(gtk_widget_get_style_context(small_pen_button), "pen-size-button");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(small_pen_button), pen_size == 1);
+    g_signal_connect(small_pen_button, "toggled", G_CALLBACK(on_small_pen_toggled), NULL);
+    gtk_box_pack_start(GTK_BOX(pen_size_box), small_pen_button, FALSE, FALSE, 0);
+
+    large_pen_button = gtk_toggle_button_new_with_label("Large");
+    gtk_style_context_add_class(gtk_widget_get_style_context(large_pen_button), "pen-size-button");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(large_pen_button), pen_size == 2);
+    g_signal_connect(large_pen_button, "toggled", G_CALLBACK(on_large_pen_toggled), NULL);
+    gtk_box_pack_start(GTK_BOX(pen_size_box), large_pen_button, FALSE, FALSE, 0);
+
+    GtkWidget *noise_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_widget_set_halign(noise_box, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(left_vbox), noise_box, FALSE, FALSE, 10);
+
+    GtkWidget *noise_label = gtk_label_new("Noise Level:");
+    gtk_style_context_add_class(gtk_widget_get_style_context(noise_label), "section-label");
+    gtk_box_pack_start(GTK_BOX(noise_box), noise_label, FALSE, FALSE, 0);
+
+    noise_scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 100, 1);
+    gtk_scale_set_value_pos(GTK_SCALE(noise_scale), GTK_POS_RIGHT);
+    gtk_range_set_value(GTK_RANGE(noise_scale), noise_level);
+    gtk_widget_set_size_request(noise_scale, 120, -1);
+    gtk_style_context_add_class(gtk_widget_get_style_context(noise_scale), "noise-scale");
+    g_signal_connect(noise_scale, "value-changed", G_CALLBACK(on_noise_level_changed), NULL);
+    gtk_box_pack_start(GTK_BOX(noise_box), noise_scale, FALSE, FALSE, 0);
 
     GtkWidget *button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 15);
     gtk_widget_set_halign(button_box, GTK_ALIGN_CENTER);
