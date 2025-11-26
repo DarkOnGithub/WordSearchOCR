@@ -17,3 +17,9 @@ CNN* cnn_load_model(int epoch) {
 
     return model;
 }
+
+void cnn_free_model(CNN* model) {
+    if (model) {
+        cnn_free(model);
+    }
+}

@@ -45,10 +45,10 @@ AdaptiveAvgPool2DOutput* adaptive_avg_pool2d_forward(AdaptiveAvgPool2D* layer, T
         return NULL;
     }
 
-    int N = input->shape[0];  // batch size
-    int C = input->shape[1];  // channels
-    int H = input->shape[2];  // input height
-    int W = input->shape[3];  // input width
+    int N = input->shape[0];
+    int C = input->shape[1];
+    int H = input->shape[2];
+    int W = input->shape[3];
     int out_H = layer->output_height;
     int out_W = layer->output_width;
 
@@ -78,7 +78,6 @@ AdaptiveAvgPool2DOutput* adaptive_avg_pool2d_forward(AdaptiveAvgPool2D* layer, T
     #pragma omp parallel for collapse(2) schedule(dynamic)
     for (int n = 0; n < N; n++) {
         for (int c = 0; c < C; c++) {
-            // For each output position
             for (int oh = 0; oh < out_H; oh++) {
                 for (int ow = 0; ow < out_W; ow++) {
                     int h_start = h_bin_starts[oh];
@@ -86,7 +85,6 @@ AdaptiveAvgPool2DOutput* adaptive_avg_pool2d_forward(AdaptiveAvgPool2D* layer, T
                     int w_start = w_bin_starts[ow];
                     int w_size = w_bin_sizes[ow];
 
-                    // Compute average over the spatial bin
                     float sum = 0.0f;
                     int count = 0;
 
@@ -98,7 +96,6 @@ AdaptiveAvgPool2DOutput* adaptive_avg_pool2d_forward(AdaptiveAvgPool2D* layer, T
                         }
                     }
 
-                    // Handle edge case where bin might be empty due to rounding
                     float avg = (count > 0) ? sum / count : 0.0f;
 
                     int output_idx = ((n * C + c) * out_H + oh) * out_W + ow;
@@ -138,11 +135,9 @@ AdaptiveAvgPool2DBackwardOutput* adaptive_avg_pool2d_backward(AdaptiveAvgPool2D*
     int out_H = layer->output_height;
     int out_W = layer->output_width;
 
-    // Create input gradient tensor with same shape as input
     Tensor* input_grad = tensor_create_zero(input->shape, input->ndim);
     if (!input_grad) return NULL;
 
-    // Precompute bin boundaries (same as forward)
     int* h_bin_starts = (int*)malloc(out_H * sizeof(int));
     int* h_bin_sizes = (int*)malloc(out_H * sizeof(int));
     int* w_bin_starts = (int*)malloc(out_W * sizeof(int));
@@ -157,7 +152,6 @@ AdaptiveAvgPool2DBackwardOutput* adaptive_avg_pool2d_backward(AdaptiveAvgPool2D*
     compute_bin_boundaries(H, out_H, h_bin_starts, h_bin_sizes);
     compute_bin_boundaries(W, out_W, w_bin_starts, w_bin_sizes);
 
-    // Distribute gradients from output back to input
     #pragma omp parallel for collapse(2) schedule(dynamic)
     for (int n = 0; n < N; n++) {
         for (int c = 0; c < C; c++) {
@@ -168,7 +162,6 @@ AdaptiveAvgPool2DBackwardOutput* adaptive_avg_pool2d_backward(AdaptiveAvgPool2D*
                     int w_start = w_bin_starts[ow];
                     int w_size = w_bin_sizes[ow];
 
-                    // Count elements in this bin
                     int count = 0;
                     for (int h = h_start; h < h_start + h_size && h < H; h++) {
                         for (int w = w_start; w < w_start + w_size && w < W; w++) {
@@ -178,10 +171,8 @@ AdaptiveAvgPool2DBackwardOutput* adaptive_avg_pool2d_backward(AdaptiveAvgPool2D*
 
                     if (count == 0) continue;
 
-                    // Distribute gradient equally among all elements in the bin
                     float grad_value = output_grad->data[((n * C + c) * out_H + oh) * out_W + ow] / count;
 
-                    // Add gradient to all positions in the bin
                     for (int h = h_start; h < h_start + h_size && h < H; h++) {
                         for (int w = w_start; w < w_start + w_size && w < W; w++) {
                             int input_idx = ((n * C + c) * H + h) * W + w;

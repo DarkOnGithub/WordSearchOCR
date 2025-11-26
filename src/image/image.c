@@ -554,7 +554,7 @@ void draw_horizontal_line(Image *image, int x1, int x2, int y, uint32_t color)
         return;
     }
 
-    uint8_t gray_color = (color & 0xFF); // Extract gray value from color
+    uint8_t gray_color = (color & 0xFF);
 
     if (x1 > x2)
     {
@@ -594,7 +594,7 @@ void draw_vertical_line(Image *image, int x, int y1, int y2, uint32_t color)
         return;
     }
 
-    uint8_t gray_color = (color & 0xFF); // Extract gray value from color
+    uint8_t gray_color = (color & 0xFF);
 
     if (y1 > y2)
     {
@@ -816,19 +816,13 @@ void draw_angled_capsule(Image *image, int center_x, int center_y, int length, i
         return;
     }
 
-    // Allow radius to be larger than half the width for more prominent circular ends
-    // No upper limit restriction for capsule appearance
-
-    // Convert angle to radians
     double rad_angle = angle * M_PI / 180.0;
     double cos_angle = cos(rad_angle);
     double sin_angle = sin(rad_angle);
 
-    // Calculate the half dimensions
     double half_length = length / 2.0;
     double half_width = width / 2.0;
 
-    // Calculate bounding box of the rotated capsule
     double corners[4][2] = {
         {-half_length, -half_width},
         {half_length, -half_width},
@@ -841,11 +835,9 @@ void draw_angled_capsule(Image *image, int center_x, int center_y, int length, i
 
     for (int i = 0; i < 4; i++)
     {
-        // Rotate the corner
         double rot_x = corners[i][0] * cos_angle - corners[i][1] * sin_angle;
         double rot_y = corners[i][0] * sin_angle + corners[i][1] * cos_angle;
 
-        // Translate to center
         int px = (int)(center_x + rot_x);
         int py = (int)(center_y + rot_y);
 
@@ -855,40 +847,32 @@ void draw_angled_capsule(Image *image, int center_x, int center_y, int length, i
         if (py > max_y) max_y = py;
     }
 
-    // Add some padding for the rounded ends
     min_x -= radius;
     min_y -= radius;
     max_x += radius;
     max_y += radius;
 
-    // Clamp to image bounds
     if (min_x < 0) min_x = 0;
     if (min_y < 0) min_y = 0;
     if (max_x >= image->width) max_x = image->width - 1;
     if (max_y >= image->height) max_y = image->height - 1;
 
-    // Draw the capsule by checking each pixel in the bounding box
     for (int y = min_y; y <= max_y; y++)
     {
         for (int x = min_x; x <= max_x; x++)
         {
-            // Transform pixel back to capsule's local coordinate system
             double dx = x - center_x;
             double dy = y - center_y;
 
-            // Rotate back by negative angle
             double local_x = dx * cos_angle + dy * sin_angle;
             double local_y = -dx * sin_angle + dy * cos_angle;
 
-            // Check if point is inside the capsule
             int inside = 0;
 
-            // Check if in the rectangular part
             if (fabs(local_x) <= half_length - radius && fabs(local_y) <= half_width)
             {
                 inside = 1;
             }
-            // Check if in the left semicircle
             else if (local_x < -half_length + radius && fabs(local_x + half_length - radius) <= radius)
             {
                 double dist_sq = (local_x + half_length - radius) * (local_x + half_length - radius) +
@@ -898,7 +882,6 @@ void draw_angled_capsule(Image *image, int center_x, int center_y, int length, i
                     inside = 1;
                 }
             }
-            // Check if in the right semicircle
             else if (local_x > half_length - radius && fabs(local_x - half_length + radius) <= radius)
             {
                 double dist_sq = (local_x - half_length + radius) * (local_x - half_length + radius) +
@@ -913,31 +896,36 @@ void draw_angled_capsule(Image *image, int center_x, int center_y, int length, i
             {
                 if (image->is_grayscale)
                 {
-                    image->gray_pixels[y * image->width + x] = (color >> 24) & 0xFF;
+                    uint8_t fg_r = (color >> 24) & 0xFF;
+                    uint8_t fg_g = (color >> 16) & 0xFF;
+                    uint8_t fg_b = (color >> 8) & 0xFF;
+                    uint8_t fg_a_val = color & 0xFF;
+                    uint8_t fg_gray = (fg_r + fg_g + fg_b) / 3;
+                    float alpha = fg_a_val / 255.0f;
+                    uint8_t bg_gray = image->gray_pixels[y * image->width + x];
+                    uint8_t blended = (uint8_t)(fg_gray * alpha + bg_gray * (1.0f - alpha));
+                    image->gray_pixels[y * image->width + x] = blended;
                 }
                 else if (image->rgba_pixels)
                 {
-                    // Alpha blending: blend capsule color with background
                     uint32_t bg_pixel = image->rgba_pixels[y * image->width + x];
 
-                    // Extract components (ARGB format)
-                    uint8_t bg_r = (bg_pixel >> 16) & 0xFF;
-                    uint8_t bg_g = (bg_pixel >> 8) & 0xFF;
-                    uint8_t bg_b = bg_pixel & 0xFF;
+                    uint8_t bg_r = (bg_pixel >> 24) & 0xFF;
+                    uint8_t bg_g = (bg_pixel >> 16) & 0xFF;
+                    uint8_t bg_b = (bg_pixel >> 8) & 0xFF;
 
-                    uint8_t fg_a = (color >> 24) & 0xFF;
-                    uint8_t fg_r = (color >> 16) & 0xFF;
-                    uint8_t fg_g = (color >> 8) & 0xFF;
-                    uint8_t fg_b = color & 0xFF;
+                    uint8_t fg_r = (color >> 24) & 0xFF;
+                    uint8_t fg_g = (color >> 16) & 0xFF;
+                    uint8_t fg_b = (color >> 8) & 0xFF;
+                    uint8_t fg_a = color & 0xFF;
 
-                    // Alpha blending formula
                     float alpha = fg_a / 255.0f;
                     uint8_t r = (uint8_t)(fg_r * alpha + bg_r * (1.0f - alpha));
                     uint8_t g = (uint8_t)(fg_g * alpha + bg_g * (1.0f - alpha));
                     uint8_t b = (uint8_t)(fg_b * alpha + bg_b * (1.0f - alpha));
-                    uint8_t a = 0xFF; // Final pixel is always opaque
+                    uint8_t a = 0xFF;
 
-                    image->rgba_pixels[y * image->width + x] = (a << 24) | (r << 16) | (g << 8) | b;
+                    image->rgba_pixels[y * image->width + x] = (r << 24) | (g << 16) | (b << 8) | a;
                 }
             }
         }
@@ -951,19 +939,15 @@ void draw_rounded_rectangle(Image *image, int x, int y, int width, int height, i
         return;
     }
 
-    // Ensure radius doesn't exceed half the smallest dimension
     int max_radius = (width < height ? width : height) / 2;
     if (radius > max_radius)
     {
         radius = max_radius;
     }
 
-    // Draw the main rectangle (excluding corners)
     draw_rectangle(image, x + radius, y, width - 2 * radius, height, true, 0, color);
     draw_rectangle(image, x, y + radius, width, height - 2 * radius, true, 0, color);
 
-    // Draw the four corner quarter-circles
-    // Top-left corner
     for (int dy = 0; dy <= radius; dy++)
     {
         for (int dx = 0; dx <= radius; dx++)
@@ -987,7 +971,6 @@ void draw_rounded_rectangle(Image *image, int x, int y, int width, int height, i
         }
     }
 
-    // Top-right corner
     for (int dy = 0; dy <= radius; dy++)
     {
         for (int dx = 0; dx <= radius; dx++)
@@ -1011,7 +994,6 @@ void draw_rounded_rectangle(Image *image, int x, int y, int width, int height, i
         }
     }
 
-    // Bottom-left corner
     for (int dy = 0; dy <= radius; dy++)
     {
         for (int dx = 0; dx <= radius; dx++)
@@ -1035,7 +1017,6 @@ void draw_rounded_rectangle(Image *image, int x, int y, int width, int height, i
         }
     }
 
-    // Bottom-right corner
     for (int dy = 0; dy <= radius; dy++)
     {
         for (int dx = 0; dx <= radius; dx++)
@@ -1055,6 +1036,74 @@ void draw_rounded_rectangle(Image *image, int x, int y, int width, int height, i
                         image->rgba_pixels[py * image->width + px] = color;
                     }
                 }
+            }
+        }
+    }
+}
+
+void draw_filled_rectangle_alpha(Image *image, int x, int y, int width, int height, uint32_t color)
+{
+    if (!image || width <= 0 || height <= 0)
+    {
+        return;
+    }
+
+    if ((image->is_grayscale && !image->gray_pixels) ||
+        (!image->is_grayscale && !image->rgba_pixels))
+    {
+        fprintf(stderr, "Error: Image has no pixel data for draw_filled_rectangle_alpha\n");
+        return;
+    }
+
+    int start_x = x < 0 ? 0 : x;
+    int start_y = y < 0 ? 0 : y;
+    int end_x = (x + width > image->width) ? image->width : x + width;
+    int end_y = (y + height > image->height) ? image->height : y + height;
+
+    if (start_x >= end_x || start_y >= end_y)
+    {
+        return;
+    }
+
+    if (image->is_grayscale)
+    {
+        uint8_t fg_gray = (color >> 24) & 0xFF;
+        uint8_t fg_a_val = color & 0xFF;
+        float alpha = fg_a_val / 255.0f;
+
+        for (int i = start_x; i < end_x; i++)
+        {
+            for (int j = start_y; j < end_y; j++)
+            {
+                uint8_t bg_gray = image->gray_pixels[j * image->width + i];
+                uint8_t blended = (uint8_t)(fg_gray * alpha + bg_gray * (1.0f - alpha));
+                image->gray_pixels[j * image->width + i] = blended;
+            }
+        }
+    }
+    else if (image->rgba_pixels)
+    {
+        uint8_t fg_r = (color >> 24) & 0xFF;
+        uint8_t fg_g = (color >> 16) & 0xFF;
+        uint8_t fg_b = (color >> 8) & 0xFF;
+        uint8_t fg_a_val = color & 0xFF;
+        float alpha = fg_a_val / 255.0f;
+
+        for (int i = start_x; i < end_x; i++)
+        {
+            for (int j = start_y; j < end_y; j++)
+            {
+                uint32_t bg_pixel = image->rgba_pixels[j * image->width + i];
+
+                uint8_t bg_r = (bg_pixel >> 24) & 0xFF;
+                uint8_t bg_g = (bg_pixel >> 16) & 0xFF;
+                uint8_t bg_b = (bg_pixel >> 8) & 0xFF;
+
+                uint8_t r = (uint8_t)(fg_r * alpha + bg_r * (1.0f - alpha));
+                uint8_t g = (uint8_t)(fg_g * alpha + bg_g * (1.0f - alpha));
+                uint8_t b = (uint8_t)(fg_b * alpha + bg_b * (1.0f - alpha));
+
+                image->rgba_pixels[j * image->width + i] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
             }
         }
     }

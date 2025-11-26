@@ -10,7 +10,8 @@ typedef struct {
 } Grid;
 
 typedef struct {
-    Tensor* probabilities;  // Shape: [num_letters, 26] - probabilities for each letter position
+    Tensor* probabilities;
+    char* image_name;
 } Word;
 
 typedef struct {

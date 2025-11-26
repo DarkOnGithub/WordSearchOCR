@@ -53,6 +53,17 @@ void draw_rounded_rectangle(Image *image, int x, int y, int width, int height, i
     @param color Color to use (RGBA format)
 */
 void draw_angled_capsule(Image *image, int center_x, int center_y, int length, int width, double angle, int radius, uint32_t color);
+
+/*
+    Draw a filled rectangle with alpha blending on an image.
+    @param image The image to draw on
+    @param x X coordinate of the rectangle
+    @param y Y coordinate of the rectangle
+    @param width Width of the rectangle
+    @param height Height of the rectangle
+    @param color Color to use (RGBA format with alpha channel)
+*/
+void draw_filled_rectangle_alpha(Image *image, int x, int y, int width, int height, uint32_t color);
 void extract_rectangle(const Image *image, int x, int y, int width, int height,
                        Image *extracted_image);
 void resize_grayscale_image(Image* src, Image* dst, int target_width, int target_height);

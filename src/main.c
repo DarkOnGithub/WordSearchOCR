@@ -1,4 +1,5 @@
 #include "gui/gui.h"
+#include "gui/drawing_gui.h"
 #include "nn/core/tensor.h"
 #include "wordsearch/processor.h"
 #include "image/operations.h"
@@ -15,7 +16,11 @@
 
 int main(int argc, char *argv[])
 {
-    if (argc >= 2)
+    if (argc == 2 && strcmp(argv[1], "--draw") == 0)
+    {
+        return main_drawing_gui(argc, argv);
+    }
+    else if (argc >= 2)
     {
         if(strcmp(argv[1], "-r") == 0)
         {
@@ -103,7 +108,6 @@ int main(int argc, char *argv[])
             printf("Grid:\n%s\n", grid_str);
             free(grid_str);
 
-            // Collect all word matches
             WordMatch** word_matches = (WordMatch**)malloc(sizeof(WordMatch*) * words_array->count);
             int num_matches = 0;
 
@@ -125,17 +129,16 @@ int main(int argc, char *argv[])
                 }
             }
 
-            // Draw capsules around solved words if any were found
             if (num_matches > 0) {
                 char output_path[256];
                 char *basename = strrchr(image_path, '/');
                 if (basename == NULL) {
-                    basename = strrchr(image_path, '\\'); // Handle Windows paths
+                    basename = strrchr(image_path, '\\');
                 }
                 if (basename == NULL) {
-                    basename = image_path; // No path separator found
+                    basename = image_path;
                 } else {
-                    basename++; // Skip the separator
+                    basename++;
                 }
                 char *dot_pos = strrchr(basename, '.');
                 if (dot_pos != NULL) {
@@ -144,10 +147,9 @@ int main(int argc, char *argv[])
                     sprintf(output_path, "solved/%s_solved", basename);
                 }
 
-                draw_solved_words(image_path, word_matches, num_matches, num_rows, num_cols, cell_bounding_boxes,
+                draw_solved_words(image_path, word_matches, num_matches, words_array, num_rows, num_cols, cell_bounding_boxes,
                                   text_region_offset_x, text_region_offset_y, output_path);
 
-                // Free word matches
                 for (int i = 0; i < num_matches; i++) {
                     free_word_match(word_matches[i]);
                 }
@@ -160,7 +162,6 @@ int main(int argc, char *argv[])
     }
     else
     {
-        // GUI mode
         return main_gui(argc, argv);
     }
 

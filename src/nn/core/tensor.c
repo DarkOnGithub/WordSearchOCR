@@ -218,10 +218,8 @@ Tensor* tensor_add_scalar_copy(Tensor* tensor, float scalar) {
     Tensor* result = tensor_create(tensor->shape, tensor->ndim);
     if (!result) return NULL;
 
-    // Copy data
     memcpy(result->data, tensor->data, tensor->size * sizeof(float));
 
-    // Add scalar in place
     tensor_add_scalar(result, scalar);
 
     return result;
@@ -373,10 +371,8 @@ Tensor* tensor_multiply_scalar_copy(Tensor* tensor, float scalar) {
     Tensor* result = tensor_create(tensor->shape, tensor->ndim);
     if (!result) return NULL;
 
-    // Copy data
     memcpy(result->data, tensor->data, tensor->size * sizeof(float));
 
-    // Multiply in place
     tensor_multiply_scalar(result, scalar);
 
     return result;
@@ -594,7 +590,6 @@ static int get_linear_index(const int* indices, const int* strides, int ndim) {
     return index;
 }
 
-// Helper function for horizontal sum of __m256
 static inline float _mm256_reduce_add_ps(__m256 v) {
     __m128 vlow  = _mm256_castps256_ps128(v);
     __m128 vhigh = _mm256_extractf128_ps(v, 1);
@@ -619,7 +614,6 @@ static void tensor_sgemm_simd(int m, int n, int k, float alpha, const float* A, 
 
     if (alpha == 0.0f) return;
 
-    // Process one row of C at a time
     for (int i = 0; i < m; i++) {
         for (int j = 0; j < n; j++) {
             float sum = 0.0f;
@@ -718,7 +712,6 @@ Tensor* tensor_sum_axis(const Tensor* tensor, int axis) {
             int f = 0;
             for (; f <= feature_size - 8; f += 8) {
                 __m256 vec = _mm256_loadu_ps(&tensor_data[b * feature_size + f]);
-                // Horizontal sum of 8 floats
                 __m128 hi = _mm256_extractf128_ps(vec, 1);
                 __m128 lo = _mm256_castps256_ps128(vec);
                 __m128 sum128 = _mm_add_ps(hi, lo);
@@ -818,10 +811,8 @@ int tensor_save_binary(const Tensor* tensor, FILE* f) {
     if (fwrite(&tensor->size, sizeof(int), 1, f) != 1) return 0;
     if (fwrite(&tensor->ndim, sizeof(int), 1, f) != 1) return 0;
 
-    // Write shape array
     if (fwrite(tensor->shape, sizeof(int), tensor->ndim, f) != (size_t)tensor->ndim) return 0;
 
-    // Write data array
     if (fwrite(tensor->data, sizeof(float), tensor->size, f) != (size_t)tensor->size) return 0;
 
     return 1;
@@ -830,19 +821,16 @@ int tensor_save_binary(const Tensor* tensor, FILE* f) {
 int tensor_load_binary(Tensor* tensor, FILE* f) {
     if (!tensor || !f) return 0;
 
-    // Read tensor metadata
     int size, ndim;
     if (fread(&size, sizeof(int), 1, f) != 1) return 0;
     if (fread(&ndim, sizeof(int), 1, f) != 1) return 0;
 
-    // Check if tensor dimensions match
     if (tensor->size != size || tensor->ndim != ndim) {
         fprintf(stderr, "Tensor dimensions don't match: expected size=%d ndim=%d, got size=%d ndim=%d\n",
                 tensor->size, tensor->ndim, size, ndim);
         return 0;
     }
 
-    // Read and validate shape
     int* shape = (int*)malloc(sizeof(int) * ndim);
     if (!shape) return 0;
 
@@ -851,7 +839,6 @@ int tensor_load_binary(Tensor* tensor, FILE* f) {
         return 0;
     }
 
-    // Check if shape matches
     for (int i = 0; i < ndim; i++) {
         if (tensor->shape[i] != shape[i]) {
             fprintf(stderr, "Tensor shape doesn't match at dimension %d: expected %d, got %d\n",
@@ -863,7 +850,6 @@ int tensor_load_binary(Tensor* tensor, FILE* f) {
 
     free(shape);
 
-    // Read data
     if (fread(tensor->data, sizeof(float), size, f) != (size_t)size) return 0;
 
     return 1;

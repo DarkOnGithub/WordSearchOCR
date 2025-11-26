@@ -99,6 +99,7 @@ typedef struct
  * @return 0 on success, non-zero on failure
  */
 int draw_solved_words(const char *image_path, WordMatch **word_matches, int num_matches,
+                      WordsArray *words_array,
                       int num_rows, int num_cols, const Rect *cell_bounding_boxes,
                       int text_region_offset_x, int text_region_offset_y, const char *output_path);
 #endif

@@ -129,3 +129,42 @@ scrollbar slider:hover {
 label {
   color: #d8dee9;
 }
+
+/* Progress bar */
+progressbar {
+  background-color: #1a1f35;
+  border: 2px solid #283252;
+  border-radius: 8px;
+  color: #ffffff;
+  font-weight: bold;
+  min-height: 20px;
+}
+
+progressbar trough {
+  background-color: #1a1f35;
+  border-radius: 6px;
+  min-height: 16px;
+}
+
+progressbar progress {
+  background: linear-gradient(90deg, #3b5bdb 0%, #2d4fc7 100%);
+  border-radius: 5px;
+  min-height: 14px;
+  box-shadow: 0 0 4px rgba(59, 91, 219, 0.3);
+}
+
+.progress-step-label {
+  color: #c8d3f5;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.status-bar {
+  background-color: #14182b;
+  border-top: 1px solid #21263a;
+  padding: 5px 10px;
+}
+
+spinner {
+  color: #3b5bdb;
+}

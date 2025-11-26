@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
-#include <immintrin.h>  // AVX/AVX2 intrinsics
+#include <immintrin.h>
 #include "nn/core/utils.h"
 
 static inline void dropout_apply_grad_mask(float* __restrict input_grad,

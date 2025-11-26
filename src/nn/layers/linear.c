@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
-#include <immintrin.h>  // AVX/AVX2 intrinsics
+#include <immintrin.h>
 #include "nn/core/init.h"
 
 

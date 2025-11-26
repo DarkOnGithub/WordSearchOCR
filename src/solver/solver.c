@@ -14,7 +14,6 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         return NULL;
     }
 
-    // Create the grid tensor with shape [height, width, 26]
     int grid_shape[] = {height, width, 26};
     Tensor* grid_tensor = tensor_create_zero(grid_shape, 3);
     if (!grid_tensor) {
@@ -22,7 +21,6 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         return NULL;
     }
 
-    // Open the directory containing cell images
     DIR* dir = opendir(letters_path);
     if (!dir) {
         fprintf(stderr, "Error: Failed to open letters directory: %s\n", letters_path);
@@ -30,7 +28,6 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         return NULL;
     }
 
-    // First pass: collect all valid image paths and positions
     typedef struct {
         char filepath[1024];
         int row, col;
@@ -43,13 +40,10 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
     struct dirent* entry;
 
     while ((entry = readdir(dir)) != NULL) {
-        // Check if filename matches pattern "cell_row_col.png"
         if (strncmp(entry->d_name, "cell_", 5) == 0 && strstr(entry->d_name, ".png")) {
             int row, col;
             if (sscanf(entry->d_name, "cell_%d_%d.png", &row, &col) == 2) {
-                // Check bounds
                 if (row >= 0 && row < height && col >= 0 && col < width) {
-                    // Expand capacity if needed
                     if (image_count >= image_capacity) {
                         image_capacity = image_capacity == 0 ? 64 : image_capacity * 2;
                         image_list = (ImageInfo*)realloc(image_list, sizeof(ImageInfo) * image_capacity);
@@ -61,7 +55,6 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
                         }
                     }
 
-                    // Add to list
                     ImageInfo* info = &image_list[image_count++];
                     snprintf(info->filepath, sizeof(info->filepath), "%s/%s", letters_path, entry->d_name);
                     info->row = row;
@@ -71,16 +64,13 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         }
     }
 
-    // Reset directory position for second pass
     rewinddir(dir);
 
-    // Close directory as we have all the file paths now
     closedir(dir);
 
     if (image_count == 0) {
         fprintf(stderr, "Warning: No valid cell images found\n");
         free(image_list);
-        // Return empty grid
         Grid* grid = (Grid*)malloc(sizeof(Grid));
         if (!grid) {
             fprintf(stderr, "Error: Failed to allocate Grid structure\n");
@@ -93,7 +83,6 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         return grid;
     }
 
-    // Create batch tensor with shape [batch_size, 1, 28, 28]
     int batch_shape[] = {image_count, 1, 28, 28};
     Tensor* batch_tensor = tensor_create(batch_shape, 4);
     if (!batch_tensor) {
@@ -103,7 +92,6 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         return NULL;
     }
 
-    // Process all images into the batch
     bool* valid_images = (bool*)malloc(sizeof(bool) * image_count);
     if (!valid_images) {
         fprintf(stderr, "Error: Failed to allocate valid_images array\n");
@@ -118,7 +106,6 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
     for (int i = 0; i < image_count; i++) {
         ImageInfo* info = &image_list[i];
 
-        // Load the image
         Image img;
         load_image(info->filepath, &img);
 
@@ -127,12 +114,10 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
             continue;
         }
 
-        // Convert to grayscale if needed
         if (!img.is_grayscale) {
             convert_to_grayscale(&img);
         }
 
-        // Resize to 28x28 if needed
         Image resized_img;
         if (img.width != 28 || img.height != 28) {
             resize_grayscale_image(&img, &resized_img, 28, 28);
@@ -140,7 +125,6 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
             img = resized_img;
         }
 
-        // Convert to tensor
         Tensor* img_tensor = to_tensor(&img);
         if (!img_tensor) {
             fprintf(stderr, "Warning: Failed to convert image to tensor: %s\n", info->filepath);
@@ -148,12 +132,10 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
             continue;
         }
 
-        // Normalize from [0,1] to [-1,1] and copy to batch tensor
         for (int y = 0; y < 28; y++) {
             for (int x = 0; x < 28; x++) {
                 float pixel_value = img_tensor->data[y * 28 + x];
                 pixel_value = (pixel_value - 0.5f) / 0.5f;
-                // Batch tensor layout: [batch, channel, height, width]
                 batch_tensor->data[valid_count * 28 * 28 + y * 28 + x] = pixel_value;
             }
         }
@@ -161,7 +143,6 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         valid_images[i] = true;
         valid_count++;
 
-        // Clean up
         tensor_free(img_tensor);
         free_image(&img);
     }
@@ -170,7 +151,6 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         fprintf(stderr, "Warning: No valid images could be processed\n");
         free(valid_images);
         tensor_free(batch_tensor);
-        // Return empty grid
         Grid* grid = (Grid*)malloc(sizeof(Grid));
         if (!grid) {
             fprintf(stderr, "Error: Failed to allocate Grid structure\n");
@@ -183,9 +163,7 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         return grid;
     }
 
-    // If we have fewer valid images than expected, resize batch tensor
     if (valid_count < image_count) {
-        // Create new batch tensor with correct size
         int new_batch_shape[] = {valid_count, 1, 28, 28};
         Tensor* new_batch_tensor = tensor_create(new_batch_shape, 4);
         if (!new_batch_tensor) {
@@ -196,13 +174,11 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
             return NULL;
         }
 
-        // Copy valid data
         memcpy(new_batch_tensor->data, batch_tensor->data, sizeof(float) * valid_count * 28 * 28);
         tensor_free(batch_tensor);
         batch_tensor = new_batch_tensor;
     }
 
-    // Run batched CNN forward pass
     CNNForwardResult* batch_forward_result = cnn_forward(model, batch_tensor);
     if (!batch_forward_result) {
         fprintf(stderr, "Error: Batched CNN forward pass failed\n");
@@ -212,7 +188,6 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         return NULL;
     }
 
-    // Apply softmax to get probabilities
     Tensor* batch_softmax_output = softmax(batch_forward_result->fc2_out);
     if (!batch_softmax_output) {
         fprintf(stderr, "Error: Batch softmax failed\n");
@@ -223,15 +198,12 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         return NULL;
     }
 
-    // Extract results back to grid tensor
     int batch_idx = 0;
     for (int i = 0; i < image_count; i++) {
         if (!valid_images[i]) continue;
 
-        ImageInfo* info = &image_list[i];  // Note: image_list was freed, this is wrong!
+        ImageInfo* info = &image_list[i];
 
-        // Store probabilities in grid tensor
-        // Shape is [height, width, 26], so index = row * (width * 26) + col * 26 + class
         int base_idx = info->row * (width * 26) + info->col * 26;
         for (int c = 0; c < 26; c++) {
             grid_tensor->data[base_idx + c] = batch_softmax_output->data[batch_idx * 26 + c];
@@ -240,14 +212,12 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         batch_idx++;
     }
 
-    // Clean up
     tensor_free(batch_softmax_output);
     cnn_forward_result_free(batch_forward_result);
     tensor_free(batch_tensor);
     free(valid_images);
     free(image_list);
 
-    // Create and return the Grid structure
     Grid* grid = (Grid*)malloc(sizeof(Grid));
     if (!grid) {
         fprintf(stderr, "Error: Failed to allocate Grid structure\n");
@@ -277,14 +247,12 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
         return NULL;
     }
 
-    // Open the directory containing word images
     DIR* dir = opendir(words_path);
     if (!dir) {
         fprintf(stderr, "Error: Failed to open words directory: %s\n", words_path);
         return NULL;
     }
 
-    // Initialize words array
     WordsArray* words_array = (WordsArray*)malloc(sizeof(WordsArray));
     if (!words_array) {
         fprintf(stderr, "Error: Failed to allocate WordsArray\n");
@@ -299,20 +267,17 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
     struct dirent* entry;
     char filepath[1024];
 
-    // Count word files first to allocate array
     int word_count = 0;
     while ((entry = readdir(dir)) != NULL) {
         if (strncmp(entry->d_name, "word_", 5) == 0 &&
             strstr(entry->d_name, ".png") &&
-            !strstr(entry->d_name, "letter")) {  // Skip individual letter files
+            !strstr(entry->d_name, "letter")) {
             word_count++;
         }
     }
 
-    // Reset directory position
     rewinddir(dir);
 
-    // Allocate words array
     if (word_count > 0) {
         words_array->words = (Word*)malloc(sizeof(Word) * word_count);
         if (!words_array->words) {
@@ -324,11 +289,10 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
         words_array->capacity = word_count;
     }
 
-    // First pass: collect all letters from all word images
     typedef struct {
-        Tensor* letters;           // Shape: [num_letters, 28, 28]
-        Tensor* probabilities;     // Will be allocated later, shape: [num_letters, 26]
-        int letter_offset;         // Offset in the global batched input
+        Tensor* letters;
+        Tensor* probabilities;
+        int letter_offset;
     } WordData;
 
     WordData* word_data_array = (WordData*)malloc(sizeof(WordData) * word_count);
@@ -343,7 +307,27 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
     int total_letters = 0;
     int word_idx = 0;
 
-    // Reset directory position for first pass
+    char **image_names = NULL;
+    if (word_count > 0) {
+        image_names = (char**)malloc(sizeof(char*) * word_count);
+        if (!image_names) {
+            fprintf(stderr, "Error: Failed to allocate image_names array\n");
+            for (int i = 0; i < word_idx; i++) {
+                if (word_data_array[i].letters) {
+                    tensor_free(word_data_array[i].letters);
+                }
+            }
+            free(word_data_array);
+            if (words_array->words) {
+                free(words_array->words);
+            }
+            free(words_array);
+            closedir(dir);
+            return NULL;
+        }
+        memset(image_names, 0, sizeof(char*) * word_count);
+    }
+
     rewinddir(dir);
 
     while ((entry = readdir(dir)) != NULL) {
@@ -351,10 +335,8 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
             strstr(entry->d_name, ".png") &&
             !strstr(entry->d_name, "letter")) {
 
-            // Construct full path
             snprintf(filepath, sizeof(filepath), "%s/%s", words_path, entry->d_name);
 
-            // Load the image
             Image word_image;
             load_image(filepath, &word_image);
             if (!word_image.gray_pixels && !word_image.rgba_pixels) {
@@ -362,12 +344,10 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
                 continue;
             }
 
-            // Convert to grayscale if needed
             if (!word_image.is_grayscale) {
                 convert_to_grayscale(&word_image);
             }
 
-            // Extract word letters
             Tensor* word_letters = extract_word_letters(&word_image);
             if (!word_letters) {
                 fprintf(stderr, "Warning: Failed to extract letters from: %s\n", filepath);
@@ -375,26 +355,26 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
                 continue;
             }
 
-            // Store word data
             word_data_array[word_idx].letters = word_letters;
             word_data_array[word_idx].probabilities = NULL;
             word_data_array[word_idx].letter_offset = total_letters;
+            image_names[word_idx] = malloc(strlen(entry->d_name) + 1);
+            if (image_names[word_idx]) {
+                strcpy(image_names[word_idx], entry->d_name);
+            }
 
             total_letters += word_letters->shape[0];
             word_idx++;
 
-            // Don't free word_letters yet - we need them for batching
             free_image(&word_image);
         }
     }
 
-    // Now create batched CNN input for all letters
     if (total_letters > 0) {
         int batch_shape[] = {total_letters, 1, 28, 28};
         Tensor* batched_input = tensor_create_zero(batch_shape, 4);
         if (!batched_input) {
             fprintf(stderr, "Error: Failed to create batched CNN input tensor\n");
-            // Clean up
             for (int i = 0; i < word_idx; i++) {
                 if (word_data_array[i].letters) {
                     tensor_free(word_data_array[i].letters);
@@ -407,20 +387,16 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
             return NULL;
         }
 
-        // Copy all letters into batched input
         int global_letter_idx = 0;
         for (int w = 0; w < word_idx; w++) {
             Tensor* word_letters = word_data_array[w].letters;
             int num_letters = word_letters->shape[0];
 
             for (int i = 0; i < num_letters; i++) {
-                // Copy letter data from word_letters [num_letters, 28, 28] to batched_input [total_letters, 1, 28, 28]
                 for (int y = 0; y < 28; y++) {
                     for (int x = 0; x < 28; x++) {
                         float pixel_value = word_letters->data[i * 28 * 28 + y * 28 + x];
-                        // Normalize from [0,1] to [-1,1]
                         pixel_value = (pixel_value - 0.5f) / 0.5f;
-                        // Store in batched input [global_letter_idx, 0, y, x]
                         int batch_idx = global_letter_idx * 28 * 28 + y * 28 + x;
                         batched_input->data[batch_idx] = pixel_value;
                     }
@@ -429,12 +405,10 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
             }
         }
 
-        // Run batched CNN forward pass
         CNNForwardResult* batch_forward_result = cnn_forward(model, batched_input);
         if (!batch_forward_result) {
             fprintf(stderr, "Error: Batched CNN forward pass failed\n");
             tensor_free(batched_input);
-            // Clean up
             for (int i = 0; i < word_idx; i++) {
                 if (word_data_array[i].letters) {
                     tensor_free(word_data_array[i].letters);
@@ -447,13 +421,11 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
             return NULL;
         }
 
-        // Apply softmax to get probabilities for all letters at once
         Tensor* batch_softmax_output = softmax(batch_forward_result->fc2_out);
         if (!batch_softmax_output) {
             fprintf(stderr, "Error: Batch softmax failed\n");
             cnn_forward_result_free(batch_forward_result);
             tensor_free(batched_input);
-            // Clean up
             for (int i = 0; i < word_idx; i++) {
                 if (word_data_array[i].letters) {
                     tensor_free(word_data_array[i].letters);
@@ -466,13 +438,11 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
             return NULL;
         }
 
-        // Distribute results back to individual words
         for (int w = 0; w < word_idx; w++) {
             Tensor* word_letters = word_data_array[w].letters;
             int num_letters = word_letters->shape[0];
             int letter_offset = word_data_array[w].letter_offset;
 
-            // Create word probability tensor
             int prob_shape[] = {num_letters, 26};
             Tensor* word_probabilities = tensor_create_zero(prob_shape, 2);
             if (!word_probabilities) {
@@ -480,7 +450,6 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
                 continue;
             }
 
-            // Copy probabilities from batch result
             for (int i = 0; i < num_letters; i++) {
                 int global_letter_idx = letter_offset + i;
                 int base_idx = i * 26;
@@ -489,30 +458,53 @@ WordsArray* create_words_array(const char* words_path, CNN* model) {
                 }
             }
 
-            // Create Word structure
             Word word_struct;
             word_struct.probabilities = word_probabilities;
+            char* full_name = image_names[w];
+            if (full_name) {
+                size_t name_len = strlen(full_name);
+                char* dot = strrchr(full_name, '.');
+                if (dot) {
+                    name_len = dot - full_name;
+                }
+                word_struct.image_name = (char*)malloc(name_len + 1);
+                if (word_struct.image_name) {
+                    strncpy(word_struct.image_name, full_name, name_len);
+                    word_struct.image_name[name_len] = '\0';
+                } else {
+                    word_struct.image_name = NULL;
+                    fprintf(stderr, "Warning: Failed to allocate memory for image name\n");
+                }
+            } else {
+                word_struct.image_name = NULL;
+            }
 
-            // Add word to array
             words_array->words[words_array->count] = word_struct;
             words_array->count++;
 
             word_data_array[w].probabilities = word_probabilities;
         }
 
-        // Clean up batch processing resources
         tensor_free(batch_softmax_output);
         cnn_forward_result_free(batch_forward_result);
         tensor_free(batched_input);
     }
 
-    // Clean up word data array and individual letter tensors
     for (int i = 0; i < word_idx; i++) {
         if (word_data_array[i].letters) {
             tensor_free(word_data_array[i].letters);
         }
     }
     free(word_data_array);
+
+    if (image_names) {
+        for (int i = 0; i < word_count; i++) {
+            if (image_names[i]) {
+                free(image_names[i]);
+            }
+        }
+        free(image_names);
+    }
 
     closedir(dir);
     return words_array;
@@ -524,6 +516,9 @@ void FreeWordsArray(WordsArray* words_array) {
             for (int i = 0; i < words_array->count; i++) {
                 if (words_array->words[i].probabilities) {
                     tensor_free(words_array->words[i].probabilities);
+                }
+                if (words_array->words[i].image_name) {
+                    free(words_array->words[i].image_name);
                 }
             }
             free(words_array->words);
@@ -544,7 +539,6 @@ char* word_to_string(const Word* word) {
     }
 
     for (int i = 0; i < num_letters; i++) {
-        // Find the letter with highest probability
         int base_idx = i * 26;
         int max_class = 0;
         float max_prob = word->probabilities->data[base_idx];
@@ -572,8 +566,6 @@ char* grid_to_string(const Grid* grid) {
     int height = grid->height;
     int width = grid->width;
 
-    // Allocate space for all characters plus newlines and null terminator
-    // Each row has width characters + 1 newline, plus final null terminator
     char* grid_str = (char*)malloc(sizeof(char) * (height * (width + 1) + 1));
     if (!grid_str) {
         return NULL;
@@ -582,7 +574,6 @@ char* grid_to_string(const Grid* grid) {
     int str_idx = 0;
     for (int r = 0; r < height; r++) {
         for (int c = 0; c < width; c++) {
-            // Find the letter with highest probability
             int base_idx = r * (width * 26) + c * 26;
             int max_class = 0;
             float max_prob = grid->grid->data[base_idx];
@@ -604,8 +595,6 @@ char* grid_to_string(const Grid* grid) {
     return grid_str;
 }
 
-// --- Probabilistic Word Search Implementation ---
-
 int char_to_index(char c) {
     return (int)(c - 'A');
 }
@@ -624,7 +613,6 @@ Tensor* create_log_prob_tensor(Tensor* prob_tensor) {
         return NULL;
     }
 
-    // Apply log with epsilon for numerical stability
     for (int i = 0; i < prob_tensor->size; i++) {
         float prob = prob_tensor->data[i];
         if (prob < 1e-9f) {
@@ -645,7 +633,6 @@ WordMatch* find_best_word_match(const Grid* grid, const Word* word, const char* 
     int width = grid->width;
     int word_len = word->probabilities->shape[0];
 
-    // Create log-probability tensor for the GRID ONLY
     Tensor* log_grid = create_log_prob_tensor(grid->grid);
 
     if (!log_grid) {
@@ -653,17 +640,12 @@ WordMatch* find_best_word_match(const Grid* grid, const Word* word, const char* 
         return NULL;
     }
 
-    // Pre-compute letter scores tensor: shape (height, width, word_len)
-    // letter_scores[r][c][i] = log-prob of word[i] being at (r,c)
     Tensor* letter_scores = tensor_create((int[]){height, width, word_len}, 3);
     if (!letter_scores) {
         tensor_free(log_grid);
         return NULL;
     }
 
-    // Compute letter scores using Einstein summation equivalent
-    // For each position (r,c) and each word letter i, compute dot product of
-    // grid probs at (r,c) with word probs at position i
     for (int r = 0; r < height; r++) {
         for (int c = 0; c < width; c++) {
             for (int i = 0; i < word_len; i++) {
@@ -671,8 +653,6 @@ WordMatch* find_best_word_match(const Grid* grid, const Word* word, const char* 
                 int grid_base = r * (width * 26) + c * 26;
                 int word_base = i * 26;
 
-                // Dot product over alphabet dimension (26)
-                // Use cross-entropy: P_word * log(P_grid)
                 for (int k = 0; k < 26; k++) {
                     score += word->probabilities->data[word_base + k] * log_grid->data[grid_base + k];
                 }
@@ -683,7 +663,6 @@ WordMatch* find_best_word_match(const Grid* grid, const Word* word, const char* 
         }
     }
 
-    // Define directions: (dr, dc, name)
     typedef struct {
         int dr, dc;
         const char* name;
@@ -704,7 +683,6 @@ WordMatch* find_best_word_match(const Grid* grid, const Word* word, const char* 
     float best_score = -INFINITY;
     WordMatch* best_match = NULL;
 
-    // Search all possible starting positions and directions
     for (int r = 0; r < height; r++) {
         for (int c = 0; c < width; c++) {
             for (int d = 0; d < num_directions; d++) {
@@ -718,18 +696,15 @@ WordMatch* find_best_word_match(const Grid* grid, const Word* word, const char* 
 
                 bool valid_path = true;
 
-                // Check the path for this word
                 for (int k = 0; k < word_len; k++) {
                     int rr = r + k * dir.dr;
                     int cc = c + k * dir.dc;
 
-                    // Check bounds
                     if (rr < 0 || rr >= height || cc < 0 || cc >= width) {
                         valid_path = false;
                         break;
                     }
 
-                    // Get the pre-computed score
                     int score_idx = rr * (width * word_len) + cc * word_len + k;
                     current_score += letter_scores->data[score_idx];
 
@@ -740,12 +715,10 @@ WordMatch* find_best_word_match(const Grid* grid, const Word* word, const char* 
                 if (valid_path && current_score > best_score) {
                     best_score = current_score;
 
-                    // Free previous best match
                     if (best_match) {
                         free_word_match(best_match);
                     }
 
-                    // Create new best match
                     best_match = (WordMatch*)malloc(sizeof(WordMatch));
                     if (!best_match) {
                         free(path_positions);
@@ -770,7 +743,6 @@ WordMatch* find_best_word_match(const Grid* grid, const Word* word, const char* 
         }
     }
 
-    // Clean up
     tensor_free(log_grid);
     tensor_free(letter_scores);
 

@@ -16,6 +16,12 @@ static GtkWidget *paned;
 static GtkWidget *image_container;
 static GtkWidget *results_container;
 static GtkWidget *notebook;
+static GtkWidget *progress_bar;
+static GtkWidget *progress_step_label;
+static GtkWidget *status_bar;
+static GtkWidget *loading_spinner;
+static GThread *processing_thread = NULL;
+static gboolean is_processing_async = FALSE;
 static gchar *current_image_path = NULL;
 static gboolean is_processing = FALSE;
 typedef struct
@@ -41,6 +47,34 @@ static gboolean tab_processed[3] = {FALSE, FALSE, FALSE};
 static GList *tab_buttons[3] = {NULL, NULL, NULL};
 static GtkWidget *selected_processing_button = NULL;
 
+typedef struct {
+    gchar *image_path;
+    int grid_result;
+    int word_result;
+    int grid_num_rows;
+    int grid_num_cols;
+    int grid_num_cells;
+    int grid_crop_offset_x;
+    int grid_crop_offset_y;
+    Rect *grid_cell_bounding_boxes;
+    int num_matches;
+    WordMatch **word_matches;
+    char *output_path;
+    GError *error;
+} ProcessingData;
+
+typedef enum {
+    PROGRESS_INIT,
+    PROGRESS_GRID_DETECTION,
+    PROGRESS_WORD_DETECTION,
+    PROGRESS_CNN_LOADING,
+    PROGRESS_GRID_PROCESSING,
+    PROGRESS_WORD_MATCHING,
+    PROGRESS_IMAGE_GENERATION,
+    PROGRESS_COMPLETE,
+    PROGRESS_ERROR
+} ProcessingStep;
+
 static void load_image_callback(GtkWidget *widget, gpointer data);
 static void process_callback(GtkWidget *widget, gpointer data);
 static void create_processing_step_button(const char *step_name,
@@ -62,7 +96,6 @@ static void show_welcome_panel(void);
 int main_gui(int argc, char *argv[])
 {
     GtkWidget *header_bar;
-    GtkWidget *results_label;
 
     gtk_init(&argc, &argv);
 
@@ -99,8 +132,33 @@ int main_gui(int argc, char *argv[])
 
     gtk_window_set_titlebar(GTK_WINDOW(main_window), header_bar);
 
+    GtkWidget *main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(main_window), main_vbox);
+
     paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_container_add(GTK_CONTAINER(main_window), paned);
+    gtk_box_pack_start(GTK_BOX(main_vbox), paned, TRUE, TRUE, 0);
+
+    status_bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_widget_set_margin_start(status_bar, 10);
+    gtk_widget_set_margin_end(status_bar, 10);
+    gtk_widget_set_margin_top(status_bar, 5);
+    gtk_widget_set_margin_bottom(status_bar, 5);
+    gtk_style_context_add_class(gtk_widget_get_style_context(status_bar), "status-bar");
+    gtk_box_pack_start(GTK_BOX(main_vbox), status_bar, FALSE, FALSE, 0);
+
+    progress_step_label = gtk_label_new("Ready");
+    gtk_style_context_add_class(gtk_widget_get_style_context(progress_step_label), "progress-step-label");
+    gtk_box_pack_start(GTK_BOX(status_bar), progress_step_label, FALSE, FALSE, 0);
+
+    loading_spinner = gtk_spinner_new();
+    gtk_box_pack_start(GTK_BOX(status_bar), loading_spinner, FALSE, FALSE, 5);
+
+    progress_bar = gtk_progress_bar_new();
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), 0.0);
+    gtk_progress_bar_set_show_text(GTK_PROGRESS_BAR(progress_bar), TRUE);
+    gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress_bar), "");
+    gtk_widget_set_size_request(progress_bar, 300, -1);
+    gtk_box_pack_end(GTK_BOX(status_bar), progress_bar, FALSE, FALSE, 0);
     gtk_style_context_add_class(gtk_widget_get_style_context(paned),
                                 "main-paned");
 
@@ -439,12 +497,10 @@ static void process_callback(GtkWidget *widget, gpointer data)
         return;
     }
 
-    if (is_processing)
+    if (is_processing_async)
     {
         return;
     }
-
-    gtk_widget_set_sensitive(process_button, FALSE);
 
     animate_image_transition();
 
@@ -523,7 +579,7 @@ static void create_processing_step_button(const char *step_name,
 static void create_preview_button(const char *button_text, const char *filename)
 {
     int saved_mode = current_processing_mode;
-    current_processing_mode = 2; // Preview tab is index 2
+    current_processing_mode = 2;
 
     GtkWidget *current_page = gtk_notebook_get_nth_page(
         GTK_NOTEBOOK(notebook), current_processing_mode);
@@ -705,6 +761,248 @@ static void load_dark_theme_css(void)
     g_object_set(settings, "gtk-application-prefer-dark-theme", TRUE, NULL);
 }
 
+static gboolean update_progress(gpointer user_data)
+{
+    ProcessingStep step = GPOINTER_TO_INT(user_data);
+
+    switch (step) {
+        case PROGRESS_INIT:
+            gtk_label_set_text(GTK_LABEL(progress_step_label), "Initializing processing...");
+            gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), 0.0);
+            gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress_bar), "0%");
+            break;
+        case PROGRESS_GRID_DETECTION:
+            gtk_label_set_text(GTK_LABEL(progress_step_label), "Step 1/5: Grid Detection");
+            gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), 0.1);
+            gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress_bar), "10%");
+            break;
+        case PROGRESS_WORD_DETECTION:
+            gtk_label_set_text(GTK_LABEL(progress_step_label), "Step 2/5: Word Detection");
+            gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), 0.3);
+            gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress_bar), "30%");
+            break;
+        case PROGRESS_CNN_LOADING:
+            gtk_label_set_text(GTK_LABEL(progress_step_label), "Step 3/5: Loading CNN Model");
+            gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), 0.5);
+            gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress_bar), "50%");
+            break;
+        case PROGRESS_GRID_PROCESSING:
+            gtk_label_set_text(GTK_LABEL(progress_step_label), "Step 4/5: Processing Grid with CNN");
+            gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), 0.7);
+            gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress_bar), "70%");
+            break;
+        case PROGRESS_WORD_MATCHING:
+            gtk_label_set_text(GTK_LABEL(progress_step_label), "Step 5/5: Finding Word Matches");
+            gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), 0.9);
+            gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress_bar), "90%");
+            break;
+        case PROGRESS_IMAGE_GENERATION:
+            gtk_label_set_text(GTK_LABEL(progress_step_label), "Step 5/5: Generating Solved Image");
+            gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), 0.95);
+            gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress_bar), "95%");
+            break;
+        case PROGRESS_COMPLETE:
+            gtk_label_set_text(GTK_LABEL(progress_step_label), "Processing Complete!");
+            gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), 1.0);
+            gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress_bar), "100%");
+            gtk_spinner_stop(GTK_SPINNER(loading_spinner));
+            is_processing_async = FALSE;
+            gtk_widget_set_sensitive(process_button, TRUE);
+            break;
+        case PROGRESS_ERROR:
+            gtk_spinner_stop(GTK_SPINNER(loading_spinner));
+            gtk_label_set_text(GTK_LABEL(progress_step_label), "Processing Failed");
+            gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress_bar), "Error");
+            is_processing_async = FALSE;
+            gtk_widget_set_sensitive(process_button, TRUE);
+            break;
+    }
+
+    return FALSE;
+}
+
+static void complete_processing(ProcessingData *data)
+{
+    if (data->error) {
+        char error_msg[256];
+        sprintf(error_msg, "Processing failed: %s", data->error->message);
+        GtkWidget *error_label = gtk_label_new(error_msg);
+        gtk_label_set_line_wrap(GTK_LABEL(error_label), TRUE);
+        gtk_box_pack_start(GTK_BOX(results_container), error_label, FALSE, FALSE, 0);
+        gtk_widget_show(error_label);
+        g_idle_add(update_progress, GINT_TO_POINTER(PROGRESS_ERROR));
+        g_error_free(data->error);
+    } else if (data->grid_result != 0 || data->word_result != 0) {
+        char error_msg[256];
+        if (data->grid_result != 0 && data->word_result != 0) {
+            sprintf(error_msg,
+                    "Both Grid Detection and Word Detection failed.\nGrid "
+                    "result: %d\nWord result: %d\nCheck console for details.",
+                    data->grid_result, data->word_result);
+        } else if (data->grid_result != 0) {
+            sprintf(error_msg,
+                    "Grid Detection failed (result: %d), but Word Detection "
+                    "succeeded.\nCheck console for details.",
+                    data->grid_result);
+        } else {
+            sprintf(error_msg,
+                    "Word Detection failed (result: %d), but Grid Detection "
+                    "succeeded.\nCheck console for details.",
+                    data->word_result);
+        }
+
+        GtkWidget *error_label = gtk_label_new(error_msg);
+        gtk_label_set_line_wrap(GTK_LABEL(error_label), TRUE);
+        gtk_box_pack_start(GTK_BOX(results_container), error_label, FALSE, FALSE, 0);
+        gtk_widget_show(error_label);
+        g_idle_add(update_progress, GINT_TO_POINTER(PROGRESS_ERROR));
+    } else {
+        if (data->num_matches > 0) {
+            create_preview_button("Solved Image", data->output_path);
+
+            char success_msg[512];
+            sprintf(success_msg, "Image processed successfully!\n\n");
+            GtkWidget *success_label = gtk_label_new(success_msg);
+            gtk_label_set_line_wrap(GTK_LABEL(success_label), TRUE);
+            gtk_box_pack_start(GTK_BOX(results_container), success_label, FALSE, FALSE, 0);
+            gtk_widget_show(success_label);
+        } else {
+            GtkWidget *success_label = gtk_label_new("Image processed successfully!\n\n");
+            gtk_label_set_line_wrap(GTK_LABEL(success_label), TRUE);
+            gtk_box_pack_start(GTK_BOX(results_container), success_label, FALSE, FALSE, 0);
+            gtk_widget_show(success_label);
+        }
+
+        tab_processed[0] = TRUE;
+        tab_processed[1] = TRUE;
+        tab_processed[2] = TRUE;
+
+        g_idle_add(update_progress, GINT_TO_POINTER(PROGRESS_COMPLETE));
+    }
+
+    if (data->word_matches) {
+        for (int i = 0; i < data->num_matches; i++) {
+            if (data->word_matches[i]) free_word_match(data->word_matches[i]);
+        }
+        free(data->word_matches);
+    }
+    if (data->grid_cell_bounding_boxes) free(data->grid_cell_bounding_boxes);
+    if (data->image_path) g_free(data->image_path);
+    if (data->output_path) g_free(data->output_path);
+    free(data);
+}
+
+static gpointer processing_worker(gpointer user_data)
+{
+    ProcessingData *data = (ProcessingData *)user_data;
+
+    g_idle_add(update_progress, GINT_TO_POINTER(PROGRESS_GRID_DETECTION));
+    g_usleep(100000);
+
+    printf("Processing Grid Detection...\n");
+    int saved_mode = current_processing_mode;
+    current_processing_mode = 0;
+
+    data->grid_result = process_wordsearch_image(data->image_path, create_processing_step_button,
+                                                 &data->grid_num_rows, &data->grid_num_cols,
+                                                 &data->grid_cell_bounding_boxes, &data->grid_num_cells,
+                                                 &data->grid_crop_offset_x, &data->grid_crop_offset_y);
+    printf("Grid Detection completed with result: %d (%d x %d grid, %d cells)\n",
+           data->grid_result, data->grid_num_rows, data->grid_num_cols, data->grid_num_cells);
+
+    if (data->grid_result != 0) {
+        complete_processing(data);
+        return NULL;
+    }
+
+    g_idle_add(update_progress, GINT_TO_POINTER(PROGRESS_WORD_DETECTION));
+    g_usleep(100000);
+
+    current_processing_mode = 1;
+    data->word_result = process_word_detection(data->image_path, create_processing_step_button);
+    printf("Word Detection completed with result: %d\n", data->word_result);
+
+    if (data->word_result != 0) {
+        complete_processing(data);
+        return NULL;
+    }
+
+    g_idle_add(update_progress, GINT_TO_POINTER(PROGRESS_CNN_LOADING));
+    g_usleep(100000);
+
+    current_processing_mode = saved_mode;
+
+    g_idle_add(update_progress, GINT_TO_POINTER(PROGRESS_GRID_PROCESSING));
+
+    CNN* model = cnn_create();
+    cnn_load_weights(model, 12);
+    cnn_eval(model);
+
+    Grid* grid = create_grid(data->grid_num_rows, data->grid_num_cols, "cells", model);
+    char* grid_str = grid_to_string(grid);
+
+    WordsArray* words_array = create_words_array("words", model);
+
+    printf("Grid:\n%s\n", grid_str);
+    free(grid_str);
+
+    g_idle_add(update_progress, GINT_TO_POINTER(PROGRESS_WORD_MATCHING));
+
+    data->word_matches = (WordMatch**)malloc(sizeof(WordMatch*) * words_array->count);
+    data->num_matches = 0;
+
+    for(int i = 0; i < words_array->count; i++){
+        Word* word = &words_array->words[i];
+        char* word_str = word_to_string(word);
+        if (word_str) {
+            WordMatch* word_match = find_best_word_match(grid, word, word_str);
+            if (word_match) {
+                printf("Found word '%s' at (%d,%d) going %s (score: %.3f)\n",
+                       word_match->word_str,
+                       word_match->start_pos.row,
+                       word_match->start_pos.col,
+                       word_match->direction,
+                       word_match->log_prob_score);
+                data->word_matches[data->num_matches++] = word_match;
+            }
+            free(word_str);
+        }
+    }
+
+    if (data->num_matches > 0) {
+        g_idle_add(update_progress, GINT_TO_POINTER(PROGRESS_IMAGE_GENERATION));
+
+        const char *basename = strrchr(data->image_path, '/');
+        if (basename == NULL) {
+            basename = strrchr(data->image_path, '\\');
+        }
+        if (basename == NULL) {
+            basename = data->image_path;
+        } else {
+            basename++;
+        }
+        char *dot_pos = strrchr(basename, '.');
+        if (dot_pos != NULL) {
+            data->output_path = g_strdup_printf("solved/%.*s_solved%s", (int)(dot_pos - basename), basename, dot_pos);
+        } else {
+            data->output_path = g_strdup_printf("solved/%s_solved", basename);
+        }
+
+        draw_solved_words(data->image_path, data->word_matches, data->num_matches,
+                         words_array,
+                         data->grid_num_rows, data->grid_num_cols,
+                         data->grid_cell_bounding_boxes, data->grid_crop_offset_x,
+                         data->grid_crop_offset_y, data->output_path);
+    }
+
+    FreeGrid(grid);
+    FreeWordsArray(words_array);
+    cnn_free(model);
+
+    complete_processing(data);
+    return NULL;
+}
+
 static void show_welcome_panel(void)
 {
     GList *children =
@@ -731,201 +1029,27 @@ static void show_welcome_panel(void)
 
 static void process_both_modes(const gchar *image_path)
 {
-    GList *children =
-        gtk_container_get_children(GTK_CONTAINER(results_container));
-    for (GList *iter = children; iter != NULL; iter = iter->next)
-    {
+    if (is_processing_async) {
+        return;
+    }
+
+    is_processing_async = TRUE;
+    gtk_widget_set_sensitive(process_button, FALSE);
+    gtk_spinner_start(GTK_SPINNER(loading_spinner));
+
+    GList *children = gtk_container_get_children(GTK_CONTAINER(results_container));
+    for (GList *iter = children; iter != NULL; iter = iter->next) {
         gtk_widget_destroy(GTK_WIDGET(iter->data));
     }
     g_list_free(children);
 
-    GtkWidget *processing_label =
-        gtk_label_new("Processing image (Grid Detection + Word Detection)...");
-    gtk_label_set_line_wrap(GTK_LABEL(processing_label), TRUE);
-    gtk_box_pack_start(GTK_BOX(results_container), processing_label, FALSE,
-                       FALSE, 0);
-    gtk_widget_show(processing_label);
+    g_idle_add(update_progress, GINT_TO_POINTER(PROGRESS_INIT));
 
-    while (gtk_events_pending())
-    {
-        gtk_main_iteration();
-    }
+    ProcessingData *data = g_new0(ProcessingData, 1);
+    data->image_path = g_strdup(image_path);
+    data->grid_result = 0;
+    data->word_result = 0;
+    data->error = NULL;
 
-    int grid_result = 0;
-    int word_result = 0;
-
-    printf("Processing Grid Detection...\n");
-    int saved_mode = current_processing_mode;
-    current_processing_mode = 0;
-
-    gtk_label_set_text(GTK_LABEL(processing_label),
-                       "Processing Grid Detection...");
-    while (gtk_events_pending())
-    {
-        gtk_main_iteration();
-    }
-
-    int grid_num_rows, grid_num_cols, grid_num_cells;
-    int grid_crop_offset_x, grid_crop_offset_y;
-    Rect *grid_cell_bounding_boxes;
-    grid_result = process_wordsearch_image(image_path, create_processing_step_button,
-                                         &grid_num_rows, &grid_num_cols, &grid_cell_bounding_boxes, &grid_num_cells,
-                                         &grid_crop_offset_x, &grid_crop_offset_y);
-    printf("Grid Detection completed with result: %d (%d x %d grid, %d cells)\n", grid_result, grid_num_rows, grid_num_cols, grid_num_cells);
-
-    current_processing_mode = 1;
-
-    gtk_label_set_text(GTK_LABEL(processing_label),
-                       "Processing Word Detection...");
-    while (gtk_events_pending())
-    {
-        gtk_main_iteration();
-    }
-
-    word_result =
-        process_word_detection(image_path, create_processing_step_button);
-    printf("Word Detection completed with result: %d\n", word_result);
-
-    current_processing_mode = saved_mode;
-
-    gtk_widget_destroy(processing_label);
-
-    if (grid_result != 0 || word_result != 0)
-    {
-        GList *error_children =
-            gtk_container_get_children(GTK_CONTAINER(results_container));
-        for (GList *iter = error_children; iter != NULL; iter = iter->next)
-        {
-            gtk_widget_destroy(GTK_WIDGET(iter->data));
-        }
-        g_list_free(error_children);
-
-        char error_msg[256];
-        if (grid_result != 0 && word_result != 0)
-        {
-            sprintf(error_msg,
-                    "Both Grid Detection and Word Detection failed.\nGrid "
-                    "result: %d\nWord result: %d\nCheck console for details.",
-                    grid_result, word_result);
-        }
-        else if (grid_result != 0)
-        {
-            sprintf(error_msg,
-                    "Grid Detection failed (result: %d), but Word Detection "
-                    "succeeded.\nCheck console for details.",
-                    grid_result);
-        }
-        else
-        {
-            sprintf(error_msg,
-                    "Word Detection failed (result: %d), but Grid Detection "
-                    "succeeded.\nCheck console for details.",
-                    word_result);
-        }
-
-        GtkWidget *error_label = gtk_label_new(error_msg);
-        gtk_label_set_line_wrap(GTK_LABEL(error_label), TRUE);
-        gtk_box_pack_start(GTK_BOX(results_container), error_label, FALSE,
-                           FALSE, 0);
-        gtk_widget_show(error_label);
-    }
-    else
-    {
-        tab_processed[0] = TRUE;
-        tab_processed[1] = TRUE;
-        tab_processed[2] = TRUE;
-
-        gtk_label_set_text(GTK_LABEL(processing_label),
-                           "Loading CNN model and processing grid...");
-        while (gtk_events_pending())
-        {
-            gtk_main_iteration();
-        }
-
-        CNN* model = cnn_create();
-        cnn_load_weights(model, 12);
-        cnn_eval(model);
-
-        Grid* grid = create_grid(grid_num_rows, grid_num_cols, "cells", model);
-        char* grid_str = grid_to_string(grid);
-
-        WordsArray* words_array = create_words_array("words", model);
-
-        printf("Grid:\n%s\n", grid_str);
-        free(grid_str);
-
-        WordMatch** word_matches = (WordMatch**)malloc(sizeof(WordMatch*) * words_array->count);
-        int num_matches = 0;
-
-        for(int i = 0; i < words_array->count; i++){
-            Word* word = &words_array->words[i];
-            char* word_str = word_to_string(word);
-            if (word_str) {
-                WordMatch* word_match = find_best_word_match(grid, word, word_str);
-                if (word_match) {
-                    printf("Found word '%s' at (%d,%d) going %s (score: %.3f)\n",
-                           word_match->word_str,
-                           word_match->start_pos.row,
-                           word_match->start_pos.col,
-                           word_match->direction,
-                           word_match->log_prob_score);
-                    word_matches[num_matches++] = word_match;
-                }
-                free(word_str);
-            }
-        }
-
-        if (num_matches > 0) {
-            char output_path[256];
-            const char *basename = strrchr(image_path, '/');
-            if (basename == NULL) {
-                basename = strrchr(image_path, '\\');
-            }
-            if (basename == NULL) {
-                basename = image_path;
-            } else {
-                basename++;
-            }
-            char *dot_pos = strrchr(basename, '.');
-            if (dot_pos != NULL) {
-                sprintf(output_path, "solved/%.*s_solved%s", (int)(dot_pos - basename), basename, dot_pos);
-            } else {
-                sprintf(output_path, "solved/%s_solved", basename);
-            }
-
-            draw_solved_words(image_path, word_matches, num_matches, grid_num_rows, grid_num_cols,
-                              grid_cell_bounding_boxes, grid_crop_offset_x, grid_crop_offset_y, output_path);
-
-            create_preview_button("Solved Image", output_path);
-
-            for (int i = 0; i < num_matches; i++) {
-                free_word_match(word_matches[i]);
-            }
-
-            char success_msg[512];
-            sprintf(success_msg,
-                    "Image processed successfully!\n\n");
-
-            GtkWidget *success_label = gtk_label_new(success_msg);
-            gtk_label_set_line_wrap(GTK_LABEL(success_label), TRUE);
-            gtk_box_pack_start(GTK_BOX(results_container), success_label, FALSE,
-                               FALSE, 0);
-            gtk_widget_show(success_label);
-        } else {
-            GtkWidget *success_label = gtk_label_new("Image processed successfully!\n\n");
-            gtk_label_set_line_wrap(GTK_LABEL(success_label), TRUE);
-            gtk_box_pack_start(GTK_BOX(results_container), success_label, FALSE,
-                               FALSE, 0);
-            gtk_widget_show(success_label);
-        }
-
-        free(word_matches);
-        if (grid_cell_bounding_boxes) free(grid_cell_bounding_boxes);
-        FreeGrid(grid);
-        FreeWordsArray(words_array);
-        cnn_free(model);
-    }
-
-    is_processing = FALSE;
-    gtk_widget_set_sensitive(process_button, TRUE);
+    processing_thread = g_thread_new("processing-worker", processing_worker, data);
 }

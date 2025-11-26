@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#include <immintrin.h>  // AVX/AVX2 intrinsics
+#include <immintrin.h>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -446,7 +446,6 @@ static inline void compute_weight_grad_generic(float* __restrict weight_grad, co
     }
 }
 
-// Optimized weight gradient computation for 1x1 kernels using SIMD with loop unrolling
 static inline void compute_weight_grad_1x1(float* __restrict weight_grad, const float* __restrict input, const float* __restrict grad_output,
                                           int batch_size, int input_channels, int output_channels,
                                           int input_height, int input_width,
@@ -465,7 +464,6 @@ static inline void compute_weight_grad_1x1(float* __restrict weight_grad, const 
             __m256 vsum3 = _mm256_setzero_ps();
             float tail = 0.0f;
 
-            // Process batches in groups of 4 for better ILP
             int b = 0;
             for (; b < batch_size - 3; b += 4) {
                 const float* in_base0 = input + b * in_batch_stride + ic * plane;
@@ -480,7 +478,6 @@ static inline void compute_weight_grad_1x1(float* __restrict weight_grad, const 
 
                 const size_t vec_end = (plane / 8) * 8;
                 for (size_t i = 0; i < vec_end; i += 8) {
-                    // Prefetch next cache lines
                     _mm_prefetch(in_base0 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
                     _mm_prefetch(in_base1 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
                     _mm_prefetch(in_base2 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
@@ -506,7 +503,6 @@ static inline void compute_weight_grad_1x1(float* __restrict weight_grad, const 
                     vsum3 = _mm256_fmadd_ps(vin3, vgo3, vsum3);
                 }
 
-                // Handle remaining elements in each batch
                 for (size_t i = vec_end; i < (size_t)plane; ++i) {
                     tail += in_base0[i] * go_base0[i] +
                             in_base1[i] * go_base1[i] +
@@ -515,7 +511,6 @@ static inline void compute_weight_grad_1x1(float* __restrict weight_grad, const 
                 }
             }
 
-            // Handle remaining batches
             for (; b < batch_size; ++b) {
                 const float* in_base = input + b * in_batch_stride + ic * plane;
                 const float* go_base = grad_output + b * out_batch_stride + oc * plane;
@@ -532,7 +527,6 @@ static inline void compute_weight_grad_1x1(float* __restrict weight_grad, const 
                 }
             }
 
-            // Combine all accumulators
             vsum0 = _mm256_add_ps(vsum0, vsum1);
             vsum2 = _mm256_add_ps(vsum2, vsum3);
             vsum0 = _mm256_add_ps(vsum0, vsum2);
@@ -544,7 +538,6 @@ static inline void compute_weight_grad_1x1(float* __restrict weight_grad, const 
     }
 }
 
-// Optimized weight gradient computation for 3x3 kernels
 static inline void compute_weight_grad_3x3(float* __restrict weight_grad, const float* __restrict input, const float* __restrict grad_output,
                                          int batch_size, int input_channels, int output_channels,
                                          int input_height, int input_width,
@@ -600,7 +593,6 @@ static inline void compute_weight_grad_3x3(float* __restrict weight_grad, const 
     }
 }
 
-// Optimized input gradient computation for 1x1 kernels using SIMD with loop unrolling
 static inline void compute_input_grad_1x1(float* __restrict grad_input, const float* __restrict weights, const float* __restrict grad_output,
                                          int batch_size, int input_channels, int output_channels,
                                          int input_height, int input_width,
@@ -616,7 +608,6 @@ static inline void compute_input_grad_1x1(float* __restrict grad_input, const fl
         for (int ic = 0; ic < input_channels; ++ic) {
             float* gi_base = grad_input + b * in_batch_stride + ic * plane;
 
-            // Process output channels in groups of 4 for better ILP
             int oc = 0;
             for (; oc < output_channels - 3; oc += 4) {
                 const float k0 = weights[oc * input_channels + ic];
@@ -636,7 +627,6 @@ static inline void compute_input_grad_1x1(float* __restrict grad_input, const fl
 
                 const size_t vec_end = (plane / 8) * 8;
                 for (size_t i = 0; i < vec_end; i += 8) {
-                    // Prefetch next cache lines
                     _mm_prefetch(go_base0 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
                     _mm_prefetch(go_base1 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
                     _mm_prefetch(go_base2 + i + PREFETCH_DISTANCE, _MM_HINT_T0);
@@ -658,7 +648,6 @@ static inline void compute_input_grad_1x1(float* __restrict grad_input, const fl
                     _mm256_storeu_ps(gi_base + i, gi_vec);
                 }
 
-                // Handle remaining elements
                 for (size_t i = vec_end; i < (size_t)plane; ++i) {
                     gi_base[i] += go_base0[i] * k0 +
                                  go_base1[i] * k1 +
@@ -667,7 +656,6 @@ static inline void compute_input_grad_1x1(float* __restrict grad_input, const fl
                 }
             }
 
-            // Handle remaining output channels
             for (; oc < output_channels; ++oc) {
                 const float kernel_weight = weights[oc * input_channels + ic];
                 const float* go_base = grad_output + b * out_batch_stride + oc * plane;
@@ -690,7 +678,6 @@ static inline void compute_input_grad_1x1(float* __restrict grad_input, const fl
     }
 }
 
-// Optimized input gradient computation for 3x3 kernels (reverted to original efficient structure)
 static inline void compute_input_grad_3x3(float* __restrict grad_input, const float* __restrict weights, const float* __restrict grad_output,
                                         int batch_size, int input_channels, int output_channels,
                                         int input_height, int input_width,
@@ -702,7 +689,6 @@ static inline void compute_input_grad_3x3(float* __restrict grad_input, const fl
     const int in_batch_stride  = input_channels * in_plane;
     const int out_batch_stride = output_channels * out_plane;
 
-    // Revert to original loop order for better cache locality - this was the main issue
     #pragma omp parallel for collapse(2) schedule(static) if (batch_size * output_channels > 1)
     for (int b = 0; b < batch_size; ++b) {
         for (int oc = 0; oc < output_channels; ++oc) {
@@ -710,7 +696,7 @@ static inline void compute_input_grad_3x3(float* __restrict grad_input, const fl
             for (int oh = 0; oh < output_height; ++oh) {
                 for (int ow = 0; ow < output_width; ++ow) {
                     const float go = go_base[oh * output_width + ow];
-                    const int ih_center = oh; // stride=1, padding=1
+                    const int ih_center = oh;
                     const int iw_center = ow;
                     for (int ic = 0; ic < input_channels; ++ic) {
                         const float* wbase = weights + oc * (input_channels * 9) + ic * 9;
@@ -778,17 +764,14 @@ Tensor* conv2D_backward(Conv2D* conv, Tensor* input, Tensor* grad_output) {
     if (!grad_input) return NULL;
 
     if (conv->kernel_size == 3 && conv->stride == 1 && conv->padding == 1) {
-        // Use optimized 3x3 version
         compute_input_grad_3x3(grad_input->data, conv->weight->data, grad_output->data,
                               batch_size, input_channels, output_channels,
                               input_height, input_width, output_height, output_width);
     } else if (conv->kernel_size == 1 && conv->stride == 1 && conv->padding == 0) {
-        // Use optimized 1x1 version
         compute_input_grad_1x1(grad_input->data, conv->weight->data, grad_output->data,
                               batch_size, input_channels, output_channels,
                               input_height, input_width, output_height, output_width);
     } else {
-        // Generic input gradient computation for any kernel size
         memset(grad_input->data, 0, (size_t)batch_size * input_channels * input_height * input_width * sizeof(float));
 
         const int in_plane  = input_height * input_width;
