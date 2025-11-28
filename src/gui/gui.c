@@ -244,13 +244,13 @@ int main_gui(int argc, char *argv[])
     GtkWidget *preview_title = gtk_label_new(NULL);
     gtk_label_set_markup(
         GTK_LABEL(preview_title),
-        "<b><span size='large'>Preview Results</span></b>");
+        "<b><span size='large'>Solved Image</span></b>");
     gtk_style_context_add_class(gtk_widget_get_style_context(preview_title),
                                 "section-title");
     gtk_box_pack_start(GTK_BOX(preview_box), preview_title, FALSE, FALSE,
                        5);
 
-    GtkWidget *preview_tab_label = gtk_label_new("Preview");
+    GtkWidget *preview_tab_label = gtk_label_new("Solved");
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), preview_box,
                              preview_tab_label);
 
