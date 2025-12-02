@@ -55,7 +55,6 @@ CNN* cnn_create() {
         return NULL;
     }
 
-    // Block 1: 3x3 -> 1x1 with residual
     model->conv1_3x3 = conv2D_create(1, 32, 3, 1, 1);      // 1->32, 3x3, stride=1, padding=1
     model->bn1_3x3 = batch_norm2d_create(32, 0.1f, 1e-5f); // Batch norm for 32 channels
     model->conv1_1x1 = conv2D_create(32, 64, 1, 1, 0);     // 32->64, 1x1, stride=1, padding=0
@@ -63,7 +62,6 @@ CNN* cnn_create() {
     model->shortcut1 = conv2D_create(1, 64, 1, 1, 0);      // 1->64, 1x1 shortcut
     model->bn_shortcut1 = batch_norm2d_create(64, 0.1f, 1e-5f); // Batch norm for shortcut1 (matches PyTorch)
 
-    // Block 2: 3x3 -> 1x1 with residual
     model->conv2_3x3 = conv2D_create(64, 64, 3, 1, 1);     // 64->64, 3x3, stride=1, padding=1
     model->bn2_3x3 = batch_norm2d_create(64, 0.1f, 1e-5f); // Batch norm for 64 channels
     model->conv2_1x1 = conv2D_create(64, 128, 1, 1, 0);    // 64->128, 1x1, stride=1, padding=0
@@ -71,7 +69,6 @@ CNN* cnn_create() {
     model->shortcut2 = conv2D_create(64, 128, 1, 1, 0);    // 64->128, 1x1 shortcut
     model->bn_shortcut2 = batch_norm2d_create(128, 0.1f, 1e-5f); // Batch norm for shortcut2 (matches PyTorch)
 
-    // Block 3: 3x3 -> 1x1 with residual
     model->conv3_3x3 = conv2D_create(128, 128, 3, 1, 1);   // 128->128, 3x3, stride=1, padding=1
     model->bn3_3x3 = batch_norm2d_create(128, 0.1f, 1e-5f);// Batch norm for 128 channels
     model->conv3_1x1 = conv2D_create(128, 256, 1, 1, 0);   // 128->256, 1x1, stride=1, padding=0
@@ -79,16 +76,13 @@ CNN* cnn_create() {
     model->shortcut3 = conv2D_create(128, 256, 1, 1, 0);   // 128->256, 1x1 shortcut
     model->bn_shortcut3 = batch_norm2d_create(256, 0.1f, 1e-5f); // Batch norm for shortcut3 (matches PyTorch)
 
-    // Pooling layers (only for blocks 1 and 2)
     model->pool1 = maxpool2d_create_simple(2, 2);         // 28x28 -> 14x14
     model->pool2 = maxpool2d_create_simple(2, 2);         // 14x14 -> 7x7
     model->gap = adaptive_avg_pool2d_create(1, 1);       // 7x7 -> 1x1
 
-    // Dropout layers (adjusted rates to match PyTorch)
     model->dropout_conv = dropout2d_create(0.10f);       // 0.10 for conv layers
     model->dropout_fc = dropout_create(0.25f);           // 0.25 for fc layers
 
-    // Fully connected layers (adjusted input size: 256*1*1 = 256)
     model->fc1 = linear_create(256, 128);                // 256 -> 128
     model->fc2 = linear_create(128, 26);                 // 128 -> 26
 
@@ -98,7 +92,7 @@ CNN* cnn_create() {
 
     model->training = true;
 
-    model->timing_verbose = false;
+    model->timing_verbose = true;
 
     return model;
 }

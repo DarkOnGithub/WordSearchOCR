@@ -1,6 +1,6 @@
 Training Configuration
 =====================
-Timestamp: Sat Nov  8 14:43:40 2025
+Timestamp: Tue Dec  2 21:58:28 2025
 Dataset: EMNIST Lowercase Letters (filtered from byclass, 164424 train samples, 29016 test samples)
 Epochs: 12
 Batch Size: 64
