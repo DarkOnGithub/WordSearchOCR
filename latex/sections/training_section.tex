@@ -51,7 +51,7 @@ La durée totale de l'entraînement pour atteindre les performances optimales a 
 \subsection{Hyperparamètres}
 
 \begin{itemize}
-    \item \textbf{Époques (Epochs) :} L'entraînement a été effectué sur \textbf{12 époques}. Une époque correspond à un passage complet sur l'intégralité du jeu de données d'entraînement.
+    \item \textbf{Epochs :} L'entraînement a été effectué sur \textbf{12 epochs}. Un epoch correspond à un passage complet sur l'intégralité du jeu de données d'entraînement.
     \item \textbf{Taille de Lot (Batch Size) :} Nous avons utilisé une taille de lot de \textbf{64}. Le traitement des données par lots permet une estimation plus stable du gradient tout en étant efficace sur le plan computationnel.
     \item \textbf{Optimiseur :} Comme détaillé dans la section précédente, nous avons utilisé \textbf{AdamW}, avec des paramètres standards pour les moments (\(\beta_1=0.9\), \(\beta_2=0.999\)) et une petite constante \(\epsilon=1e-8\) pour la stabilité numérique.
     \item \textbf{Taux d'Apprentissage Initial :} Le taux d'apprentissage a été initialisé à \textbf{0.001}. C'est une valeur de départ courante qui offre un bon compromis entre une convergence rapide et le risque de dépasser un minimum local.
@@ -63,22 +63,22 @@ La durée totale de l'entraînement pour atteindre les performances optimales a 
 Le suivi de la perte (loss) et de la précision (accuracy) est essentiel pour évaluer la convergence du modèle.
 
 \subsubsection{Évolution par Époque}
-Une vue d'ensemble de l'apprentissage est obtenue en analysant les performances à la fin de chaque époque.
+Une vue d'ensemble de l'apprentissage est obtenue en analysant les performances à la fin de chaque epoch.
 
 \begin{figure}[H]
     \centering
     \begin{subfigure}{0.48\textwidth}
         \includegraphics[width=\linewidth]{ressources/epoch_loss.png}
-        \caption{Évolution de la perte par époque.}
+        \caption{Évolution de la perte par epoch.}
         \label{fig:epoch_loss}
     \end{subfigure}
     \hfill
     \begin{subfigure}{0.48\textwidth}
         \includegraphics[width=\linewidth]{ressources/epoch_accuracy.png}
-        \caption{Évolution de la précision par époque.}
+        \caption{Évolution de la précision par epoch.}
         \label{fig:epoch_accuracy}
     \end{subfigure}
-    \caption{Performance du modèle au fil des époques.}
+    \caption{Performance du modèle au fil des epochs.}
     \label{fig:epoch_performance}
 \end{figure}
 
@@ -110,7 +110,7 @@ Au-delà du choix de l'optimiseur, des stratégies supplémentaires ont été mi
 \subsubsection{Ordonnancement du Taux d'Apprentissage (Learning Rate Scheduling)}
 Le taux d'apprentissage est l'un des hyperparamètres les plus importants. Un taux trop élevé peut empêcher la convergence, tandis qu'un taux trop faible peut la ralentir considérablement. Un \textbf{ordonnanceur de taux d'apprentissage} est une technique qui ajuste dynamiquement cette valeur au cours de l'entraînement.
 
-Nous avons utilisé un ordonnanceur de type \textbf{StepLR}. Cette stratégie maintient le taux d'apprentissage constant pendant un certain nombre d'époques, puis le réduit d'un facteur multiplicatif. Dans notre configuration, le taux d'apprentissage était réduit d'un facteur de \textbf{0.1} (gamma) toutes les \textbf{7 époques}. L'avantage de cette approche est double :
+Nous avons utilisé un ordonnanceur de type \textbf{StepLR}. Cette stratégie maintient le taux d'apprentissage constant pendant un certain nombre d'epochs, puis le réduit d'un facteur multiplicatif. Dans notre configuration, le taux d'apprentissage était réduit d'un facteur de \textbf{0.1} (gamma) toutes les \textbf{7 epochs}. L'avantage de cette approche est double :
 \begin{itemize}
     \item Au début, un taux d'apprentissage relativement élevé (0.001) permet au modèle de converger rapidement vers une bonne région du paysage de perte.
     \item Plus tard, un taux d'apprentissage plus faible permet au modèle d'explorer cette région plus finement pour se rapprocher d'un minimum optimal, sans "rebondir" hors de la vallée.
@@ -123,7 +123,7 @@ Le pseudo-code suivant illustre le mécanisme de mise à jour du taux d'apprenti
     \label{alg:steplr}
     \begin{algorithmic}[1]
         \Require $lr_{initial}$ (Taux d'apprentissage initial)
-        \Require $step\_size$ (Fréquence de la mise à jour, en époques)
+        \Require $step\_size$ (Fréquence de la mise à jour, en epochs)
         \Require $\gamma$ (Facteur de réduction du taux d'apprentissage)
 
         \Function{GetLearningRate}{$epoch$}
@@ -137,7 +137,7 @@ Le pseudo-code suivant illustre le mécanisme de mise à jour du taux d'apprenti
 \subsubsection{Prévention du Surapprentissage et Arrêt Précoce (Early Stopping)}
 Le surapprentissage est un risque majeur où le modèle mémorise les données d'entraînement au lieu d'apprendre à généraliser. Pour contrer cela, nous avons mis en place une stratégie d'\textbf{arrêt précoce (Early Stopping)}.
 
-Cette technique consiste à surveiller les performances du modèle sur un ensemble de données de validation (dans notre cas, l'ensemble de test) à la fin de chaque époque. Si les performances sur cet ensemble n'ont pas montré d'amélioration pendant un certain nombre d'époques consécutives (un paramètre appelé \textbf{patience}, que nous avons fixé à 10), l'entraînement est interrompu. Le modèle final retenu est celui qui a obtenu les meilleures performances sur l'ensemble de validation, et non nécessairement celui de la toute dernière époque. Cette méthode offre deux avantages majeurs :
+Cette technique consiste à surveiller les performances du modèle sur un ensemble de données de validation (dans notre cas, l'ensemble de test) à la fin de chaque epoch. Si les performances sur cet ensemble n'ont pas montré d'amélioration pendant un certain nombre d'epochs consécutives (un paramètre appelé \textbf{patience}, que nous avons fixé à 10), l'entraînement est interrompu. Le modèle final retenu est celui qui a obtenu les meilleures performances sur l'ensemble de validation, et non nécessairement celui de la toute dernière epoch. Cette méthode offre deux avantages majeurs :
 \begin{itemize}
     \item Elle agit comme une forme de régularisation en empêchant le modèle de trop se spécialiser sur les données d'entraînement.
     \item Elle peut économiser un temps de calcul considérable en terminant l'entraînement dès que le modèle cesse de s'améliorer.
@@ -146,11 +146,11 @@ Cette technique consiste à surveiller les performances du modèle sur un ensemb
 \subsection{Résultats Finaux de l'Entraînement}
 
 \subsubsection{Métriques Finales}
-L'entraînement s'est terminé avec succès après \textbf{12 époques}, atteignant des performances remarquables sur l'ensemble de validation. Le modèle a démontré une capacité d'apprentissage exceptionnelle avec les métriques finales suivantes :
+L'entraînement s'est terminé avec succès après \textbf{12 epochs} sur \textbf{15 epochs}, atteignant des performances remarquables sur l'ensemble de validation. Le modèle a démontré une capacité d'apprentissage exceptionnelle avec les métriques finales suivantes :
 
 \begin{table}[H]
     \centering
-    \caption{Métriques finales du modèle à l'époque 12}
+    \caption{Métriques finales du modèle à l'epoch
     \label{tab:final_metrics}
     \begin{tabular}{|l|c|}
         \hline
