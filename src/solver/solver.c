@@ -6,6 +6,7 @@
 #include "../include/solver/solver.h"
 #include "../include/nn/layers/cross_entropy_loss.h"
 #include "../include/image/image.h"
+#include "../include/image/operations.h"
 #include "../include/wordsearch/word_detection.h"
 
 Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
@@ -117,6 +118,15 @@ Grid* create_grid(int height, int width, const char* letters_path, CNN* model) {
         if (!img.is_grayscale) {
             convert_to_grayscale(&img);
         }
+
+        invert(&img);
+        StructuringElement* kernel = getStructuringElement(MORPH_RECT, 3, 3);
+        if (kernel) {
+            morphologyEx(&img, MORPH_DILATE, kernel, 1);
+            freeStructuringElement(kernel);
+        }
+        invert(&img);
+
 
         Image resized_img;
         if (img.width != 28 || img.height != 28) {
