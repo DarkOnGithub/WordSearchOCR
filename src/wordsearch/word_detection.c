@@ -739,6 +739,10 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
 {
     Image image;
     load_image(image_path, &image);
+    if (!rotate_image_automatic(&image))
+    {
+        printf("Warning: Automatic rotation for word detection failed or was skipped\n");
+    }
 
     if (!image.rgba_pixels && !image.gray_pixels)
     {
@@ -782,6 +786,10 @@ BoundingBoxArray *detect_words(const char *image_path, const char *debug_prefix)
 
     Image original_blurred2;
     load_image(image_path, &original_blurred2);
+    if (!rotate_image_automatic(&original_blurred2))
+    {
+        printf("Warning: Automatic rotation for secondary blur failed or was skipped\n");
+    }
     convert_to_grayscale(&original_blurred2);
     gaussian_blur(&original_blurred2, 5, 0.0);
 

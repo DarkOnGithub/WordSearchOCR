@@ -13,14 +13,7 @@ from tqdm import tqdm
 from PIL import Image
 import os
 
-# Enable TensorFloat32 for better performance on Ampere+ GPUs
-torch.set_float32_matmul_precision('high')
 
-# Reduce inductor autotuning aggressiveness to avoid SM count warnings
-os.environ['TORCHINDUCTOR_MAX_AUTOTUNE'] = '1'  # Reduce autotuning
-os.environ['TORCHINDUCTOR_MAX_AUTOTUNE_GEMM_BACKENDS'] = 'ATEN'  # Use simpler GEMM backend
-
-@torch.compile
 class LetterCNN_v3_Leaky(nn.Module):
     def __init__(self):
         super(LetterCNN_v3_Leaky, self).__init__()

@@ -150,7 +150,7 @@ L'entraînement s'est terminé avec succès après \textbf{12 epochs} sur \textb
 
 \begin{table}[H]
     \centering
-    \caption{Métriques finales du modèle à l'epoch
+    \caption{Métriques finales du modèle à l'epoch 12}
     \label{tab:final_metrics}
     \begin{tabular}{|l|c|}
         \hline
@@ -173,5 +173,4 @@ L'entraînement du modèle a été réalisé sur un processeur \textbf{Intel Xeo
 
 \subsection{Défis Rencontrés et Analyse des Résultats sur Données Réelles}
 Malgré des métriques de validation impressionnantes, les performances du modèle sur des données réelles se sont avérées quelque peu décevantes. Nous suspectons que cette baisse de performance est due à une implémentation perfectible des couches de convolution (\textit{Conv2D}), qui ne parviendraient pas à extraire les caractéristiques les plus pertinentes des images de manière aussi efficace que prévu.
-
 Cette hypothèse est renforcée par une comparaison avec un prototype développé sous \textbf{PyTorch}, un framework d'apprentissage automatique de référence. Avec une architecture strictement identique, la version PyTorch a montré une bien meilleure généralisation sur des données réelles, en particulier sur la distinction de caractères notoirement difficiles comme les paires \textbf{O/Q} ou le groupe \textbf{I/T/L}. Or, notre jeu de données synthétique avait été spécifiquement enrichi et affiné pour forcer le modèle à bien différencier ces cas ambigus. Le fait que le modèle en C éprouve des difficultés là où la version PyTorch réussit suggère que le problème ne réside ni dans l'architecture ni dans les données, mais bien dans les détails de l'implémentation bas-niveau des opérations de convolution.

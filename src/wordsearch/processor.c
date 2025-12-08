@@ -42,6 +42,11 @@ int process_wordsearch_image(const char *image_path,
 
     Image original_image;
     load_image(image_path, &original_image);
+    convert_to_grayscale(&original_image);
+    if (!rotate_image_automatic(&original_image))
+    {
+        printf("Warning: Automatic rotation of original image failed or was skipped\n");
+    }
 
     Image grid_image;
     Rect grid_bounds;
@@ -919,6 +924,10 @@ int process_word_detection(const char *image_path,
 
     Image original_image;
     load_image(image_path, &original_image);
+    if (!rotate_image_automatic(&original_image))
+    {
+        printf("Warning: Automatic rotation of original image failed or was skipped\n");
+    }
 
     if (original_image.rgba_pixels || original_image.gray_pixels)
     {
@@ -980,6 +989,10 @@ int draw_solved_words(const char *image_path, WordMatch **word_matches, int num_
 
     Image original_image;
     load_image(image_path, &original_image);
+    if (!rotate_image_automatic(&original_image))
+    {
+        printf("Warning: Automatic rotation of original image failed or was skipped\n");
+    }
     if ((!original_image.is_grayscale && !original_image.rgba_pixels) ||
         (original_image.is_grayscale && !original_image.gray_pixels))
     {

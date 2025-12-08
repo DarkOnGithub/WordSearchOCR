@@ -148,3 +148,15 @@ void invert(Image *image);
     !Warning: Only works with RGB images. Modifies the image in place. The image becomes square.
 */
 void rotate_image(Image *image, double angle);
+
+/*
+    Detect the best deskew angle on a grayscale image.
+    Returns 0.0 if no significant skew is detected.
+*/
+double detect_best_angle(Image *image);
+
+/*
+    Automatically rotate a grayscale image to its best orientation.
+    Returns 1 on success, 0 on failure.
+*/
+int rotate_image_automatic(Image *image);

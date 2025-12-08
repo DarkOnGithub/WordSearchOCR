@@ -19,6 +19,10 @@ int load_and_preprocess_image(const char *image_path, Image *image,
     }
 
     convert_to_grayscale(image);
+    if (!rotate_image_automatic(image))
+    {
+        printf("Warning: Automatic rotation failed or was skipped\n");
+    }
     save_image("step_01_grayscale.png", image);
     if (create_button_callback)
     {

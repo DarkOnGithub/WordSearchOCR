@@ -1459,6 +1459,315 @@ void adaptive_morphological_clean(Image *image)
     }
 }
 
+
+static int downscale_grayscale_image(const Image *src, int target_width,
+                                     Image *dst)
+{
+    if (!src || !src->is_grayscale || !src->gray_pixels || target_width <= 0)
+    {
+        return 0;
+    }
+
+    if (src->width <= target_width)
+    {
+        dst->width = src->width;
+        dst->height = src->height;
+        dst->is_grayscale = true;
+        dst->gray_pixels = src->gray_pixels;
+        dst->rgba_pixels = NULL;
+        return 1;
+    }
+
+    double scale = (double)target_width / (double)src->width;
+    int new_width = target_width;
+    int new_height = (int)round(src->height * scale);
+
+    dst->width = new_width;
+    dst->height = new_height;
+    dst->is_grayscale = true;
+    dst->rgba_pixels = NULL;
+    dst->gray_pixels = (uint8_t *)malloc(new_width * new_height * sizeof(uint8_t));
+    if (!dst->gray_pixels)
+    {
+        fprintf(stderr, "Error: Failed to allocate buffer for downscaled image\n");
+        return 0;
+    }
+
+    for (int y = 0; y < new_height; y++)
+    {
+        double src_y = ((double)y + 0.5) / scale - 0.5;
+        int sy = (int)round(src_y);
+        sy = (sy < 0) ? 0 : (sy >= src->height ? src->height - 1 : sy);
+
+        for (int x = 0; x < new_width; x++)
+        {
+            double src_x = ((double)x + 0.5) / scale - 0.5;
+            int sx = (int)round(src_x);
+            sx = (sx < 0) ? 0 : (sx >= src->width ? src->width - 1 : sx);
+
+            dst->gray_pixels[y * new_width + x] =
+                src->gray_pixels[sy * src->width + sx];
+        }
+    }
+
+    return 1;
+}
+
+static double compute_projection_variance_gray(const Image *image)
+{
+    if (!image || !image->gray_pixels || !image->is_grayscale)
+    {
+        return 0.0;
+    }
+
+    int width = image->width;
+    int height = image->height;
+    if (width < 2 || height < 1)
+    {
+        return 0.0;
+    }
+
+    double *row_sums = (double *)calloc(height, sizeof(double));
+    if (!row_sums)
+    {
+        return 0.0;
+    }
+
+    for (int y = 0; y < height; y++)
+    {
+        double line_sum = 0.0;
+        uint8_t *row = image->gray_pixels + y * width;
+        for (int x = 1; x < width; x++)
+        {
+            line_sum += fabs((double)row[x] - (double)row[x - 1]);
+        }
+        row_sums[y] = line_sum;
+    }
+
+    double mean = 0.0;
+    for (int y = 0; y < height; y++)
+    {
+        mean += row_sums[y];
+    }
+    mean /= (double)height;
+
+    double var = 0.0;
+    for (int y = 0; y < height; y++)
+    {
+        double diff = row_sums[y] - mean;
+        var += diff * diff;
+    }
+    var /= (double)height;
+
+    free(row_sums);
+    return var;
+}
+
+static int rotate_grayscale_image(const Image *src, double angle_deg, Image *dst)
+{
+    if (!src || !src->gray_pixels || !src->is_grayscale)
+    {
+        fprintf(stderr, "Error: rotate_grayscale_image requires a grayscale image\n");
+        return 0;
+    }
+
+    while (angle_deg > 180.0) angle_deg -= 360.0;
+    while (angle_deg < -180.0) angle_deg += 360.0;
+
+    double radians = angle_deg * M_PI / 180.0;
+    double sin_a = sin(radians);
+    double cos_a = cos(radians);
+
+    int src_w = src->width;
+    int src_h = src->height;
+    int dest_w = (int)ceil(fabs(src_w * cos_a) + fabs(src_h * sin_a));
+    int dest_h = (int)ceil(fabs(src_w * sin_a) + fabs(src_h * cos_a));
+
+    if (dest_w <= 0 || dest_h <= 0)
+    {
+        return 0;
+    }
+
+    dst->width = dest_w;
+    dst->height = dest_h;
+    dst->is_grayscale = true;
+    dst->rgba_pixels = NULL;
+    dst->gray_pixels = (uint8_t *)malloc(dest_w * dest_h * sizeof(uint8_t));
+    if (!dst->gray_pixels)
+    {
+        fprintf(stderr, "Error: Failed to allocate buffer for rotated image\n");
+        return 0;
+    }
+
+    // Initialize background to white
+    memset(dst->gray_pixels, 255, dest_w * dest_h * sizeof(uint8_t));
+
+    double cx = src_w / 2.0;
+    double cy = src_h / 2.0;
+    double dcx = dest_w / 2.0;
+    double dcy = dest_h / 2.0;
+
+    for (int y = 0; y < dest_h; y++)
+    {
+        for (int x = 0; x < dest_w; x++)
+        {
+            double xs = (x - dcx) * cos_a + (y - dcy) * sin_a + cx;
+            double ys = -(x - dcx) * sin_a + (y - dcy) * cos_a + cy;
+
+            if (xs >= 0 && xs < src_w && ys >= 0 && ys < src_h)
+            {
+                int src_x = (int)(xs + 0.5);
+                int src_y = (int)(ys + 0.5);
+                if (src_x >= src_w) src_x = src_w - 1;
+                if (src_y >= src_h) src_y = src_h - 1;
+
+                dst->gray_pixels[y * dest_w + x] =
+                    src->gray_pixels[src_y * src_w + src_x];
+            }
+        }
+    }
+
+    return 1;
+}
+
+double detect_best_angle(Image *image)
+{
+    if (!image)
+    {
+        return 0.0;
+    }
+
+    if (!image->is_grayscale)
+    {
+        convert_to_grayscale(image);
+    }
+
+    if (!image->gray_pixels)
+    {
+        fprintf(stderr, "Error: detect_best_angle requires grayscale pixel data\n");
+        return 0.0;
+    }
+
+    const int target_width = 150;
+    Image working = {0};
+    Image *eval = image;
+    int eval_is_copy = 0;
+
+    if (image->width > target_width)
+    {
+        if (!downscale_grayscale_image(image, target_width, &working))
+        {
+            fprintf(stderr, "Error: Failed to downscale image for angle detection\n");
+            return 0.0;
+        }
+        eval = &working;
+        eval_is_copy = 1;
+    }
+
+    double best_angle = 0.0;
+    double best_score = -1.0;
+
+    for (double angle = -45.0; angle <= 45.0; angle += 5.0)
+    {
+        Image rotated = {0};
+        if (!rotate_grayscale_image(eval, angle, &rotated))
+        {
+            continue;
+        }
+        double score = compute_projection_variance_gray(&rotated);
+        free_image(&rotated);
+
+        if (score > best_score)
+        {
+            best_score = score;
+            best_angle = angle;
+        }
+    }
+
+    double search_start = best_angle - 3.0;
+    double search_end = best_angle + 3.0;
+    for (double angle = search_start; angle <= search_end + 1e-6; angle += 0.1)
+    {
+        Image rotated = {0};
+        if (!rotate_grayscale_image(eval, angle, &rotated))
+        {
+            continue;
+        }
+        double score = compute_projection_variance_gray(&rotated);
+        free_image(&rotated);
+
+        if (score > best_score)
+        {
+            best_score = score;
+            best_angle = angle;
+        }
+    }
+
+    if (eval_is_copy)
+    {
+        free_image(&working);
+    }
+
+    if (best_angle > -1.0 && best_angle < 1.0)
+    {
+        return 0.0;
+    }
+
+    return best_angle;
+}
+
+int rotate_image_automatic(Image *image)
+{
+    if (!image)
+    {
+        return 0;
+    }
+
+    if (!image->is_grayscale)
+    {
+        convert_to_grayscale(image);
+    }
+
+    if (!image->gray_pixels)
+    {
+        fprintf(stderr, "Error: rotate_image_automatic requires grayscale pixel data\n");
+        return 0;
+    }
+
+    double best_angle = detect_best_angle(image);
+    if (fabs(best_angle) < 1e-3)
+    {
+        printf("Image is already upright, no rotation needed\n");
+        return 1;
+    }
+
+    Image rotated = {0};
+    if (!rotate_grayscale_image(image, best_angle, &rotated))
+    {
+        fprintf(stderr, "Error: Failed to rotate image by detected angle\n");
+        return 0;
+    }
+
+    if (image->gray_pixels)
+    {
+        free(image->gray_pixels);
+    }
+    if (image->rgba_pixels)
+    {
+        free(image->rgba_pixels);
+    }
+
+    image->gray_pixels = rotated.gray_pixels;
+    image->rgba_pixels = NULL;
+    image->width = rotated.width;
+    image->height = rotated.height;
+    image->is_grayscale = true;
+
+    printf("Image automatically rotated by best rotation angle: %.2f degrees\n",
+           best_angle);
+    return 1;
+}
+
 /*
     Rotate an image by a given angle in degrees.
     Creates a square output filled with white background.

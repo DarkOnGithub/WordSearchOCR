@@ -1,0 +1,35 @@
+\section{Rotation Automatique et Correction de l'Inclinaison}
+
+L'une des étapes critiques du prétraitement est de s'assurer que l'image de la grille de mots mêlés est correctement orientée. Une image scannée ou photographiée présente souvent une inclinaison qui peut perturber l'extraction de la grille et la reconnaissance des caractères. Pour remédier à cela, nous avons implémenté un algorithme de correction automatique de l'inclinaison.
+
+\subsection{Principe : Variance de la Projection Horizontale}
+
+L'algorithme repose sur l'observation que le texte (et les lignes de la grille) aligné horizontalement présente une structure très marquée lorsqu'on le projette sur l'axe vertical.
+Si l'on somme les valeurs des pixels (ou leurs gradients) le long de chaque ligne horizontale de l'image :
+\begin{itemize}
+    \item \textbf{Image alignée :} On observe une alternance de pics élevés (lignes de texte/grille) et de vallées profondes (espaces blancs entre les lignes). Cette distribution possède une variance élevée.
+    \item \textbf{Image inclinée :} Les lignes de texte se mélangent aux espaces blancs lors de la projection. Le profil de projection est plus "lisse" et uniforme, résultant en une variance plus faible.
+\end{itemize}
+
+Notre objectif est donc de trouver l'angle de rotation $\theta$ qui maximise la variance du profil de projection horizontale.
+
+\subsection{Algorithme Implémenté}
+
+Pour garantir à la fois précision et performance, l'algorithme procède en plusieurs étapes :
+
+\begin{enumerate}
+    \item \textbf{Réduction de résolution (Downscaling) :}
+    L'image originale est d'abord convertie en niveaux de gris et redimensionnée à une largeur cible faible (par exemple 150 pixels). Cette étape est cruciale pour réduire le coût de calcul des rotations successives lors de la recherche, sans sacrifier la précision de l'angle dominant.
+
+    \item \textbf{Recherche Grossière (Coarse Search) :}
+    Nous testons une plage d'angles large (de $-45^{\circ}$ à $+45^{\circ}$) avec un pas de $5^{\circ}$. Pour chaque angle, l'image réduite est tournée, et la variance de sa projection est calculée. L'angle produisant la variance maximale est conservé comme estimation initiale.
+
+    \item \textbf{Recherche Fine (Fine Search) :}
+    Autour de l'angle optimal trouvé précédemment, nous effectuons une recherche plus précise dans une fenêtre de $\pm 3^{\circ}$, avec un pas très fin de $0.1^{\circ}$. Cela permet d'ajuster l'angle avec une grande précision.
+
+    \item \textbf{Application de la Rotation :}
+    Une fois le meilleur angle $\theta_{best}$ déterminé, la rotation est appliquée à l'image originale en haute résolution. Nous utilisons une interpolation par le plus proche voisin pour éviter d'introduire du flou sur les bords des caractères, ce qui est préférable pour les étapes ultérieures de binarisation et d'OCR.
+\end{enumerate}
+
+Cette méthode permet de redresser efficacement les grilles inclinées, facilitant grandement l'étape suivante de segmentation des cellules.
+
