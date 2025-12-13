@@ -88,6 +88,56 @@
 \tableofcontents
 \end{spacing}
 \newpage
+
+\section{Rôle et mission de chaque membre}
+
+\begin{itemize}
+    \item \textbf{Chargement des images et mise à l'échelle de gris :} Léa-Angélina Kolmerschlag
+    \item \textbf{Rotation de l'image :} Léa-Angélina Kolmerschlag
+    \item \textbf{Pré-traitement de l'image :} Tom Huynh
+    \item \textbf{Rotation automatique de l'image :} Léa-Angélina Kolmerschlag
+    \item \textbf{Extraction de la grille et des cellules :} Tom Huynh
+    \item \textbf{Extraction des mots :} Tom Huynh et Alexandre Joaquim Lima Salgueiro
+    \item \textbf{Réseau de neurones (XNOR):} Tom Huynh et Hugo Guyennet
+    \item \textbf{Réseau de neurones (OCR):} Tom Huynh
+    \item \textbf{Entrainement du réseau de neurones (OCR) et jeu de données :} Tom Huynh et Hugo Guyennet
+    \item \textbf{Solver :} Alexandre Joaquim Lima Salgueiro
+\end{itemize}
+
+\section{Objectifs, planification et état d'avancement}
+
+\subsubsection*{Éléments pour la première soutenance}
+\begin{itemize}
+    \item[\Checkmark] Chargement d’une image et suppression des couleurs ;
+    \item[\Checkmark] Rotation manuelle de l’image ;
+    \item[\Checkmark] Détection de la position :
+    \begin{itemize}
+        \item De la grille ;
+        \item De la liste de mots ;
+        \item Des lettres dans la grille ;
+        \item Des mots de la liste ;
+        \item Des lettres dans les mots de la liste.
+    \end{itemize}
+    \item[\Checkmark] Découpage de l’image (sauvegarde de chaque lettre sous la forme d’une image) ;
+    \item[\Checkmark] Implémentation de l’algorithme de résolution d’une grille de mots cachés dans le programme en ligne de commande \texttt{solver} ;
+    \item[\Checkmark] Une preuve de concept du réseau de neurones, capable d’apprendre la fonction logique XNOR.
+\end{itemize}
+
+\subsubsection*{Éléments pour la soutenance finale}
+\begin{itemize}
+    \item[\Checkmark] Le prétraitement complet (avec la rotation automatique) ;
+    \item[\Checkmark] Le réseau de neurones complet et fonctionnel :
+    \begin{itemize}
+        \item Apprentissage ;
+        \item Reconnaissance des lettres de la grille et de la liste de mots.
+    \end{itemize}
+    \item[\Checkmark] La reconstruction de la grille ;
+    \item[\Checkmark] La reconstruction de la liste de mots ;
+    \item[\Checkmark] La résolution de la grille ;
+    \item[\Checkmark] L’affichage de la grille ;
+    \item[\Checkmark] Une interface graphique permettant d’utiliser tous ces éléments.
+\end{itemize}
+\newpage
 \input{sections/neural_network_intro}
 \input{sections/tensor_representation}
 \newpage

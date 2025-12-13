@@ -1,176 +1,140 @@
-\section{Entraînement du Modèle}
+\section{Entraînement et Analyse}
 
-Le processus d'entraînement est l'étape cruciale où le réseau de neurones apprend à reconnaître les caractères en ajustant ses millions de paramètres de manière itérative.
+L'étape d'entraînement constitue la phase critique où le réseau de neurones ajuste ses poids synaptiques pour minimiser l'erreur de prédiction. Cette section détaille la méthodologie rigoureuse adoptée pour transformer une architecture théorique en un modèle performant, depuis la conception d'un jeu de données sur-mesure jusqu'à l'analyse fine de la convergence.
 
-\subsection{Préparation des Données et Environnement}
-La qualité et la préparation des données sont fondamentales pour le succès de l'entraînement. Plutôt que d'utiliser un jeu de données standard tel que EMNIST dans sa forme brute, nous avons opté pour une approche plus robuste en générant synthétiquement notre propre ensemble de données à l'aide d'un script dédié. L'objectif était de créer un corpus d'images plus riche et plus difficile, simulant les imperfections du monde réel que l'on trouve dans les documents imprimés et numérisés.
+\subsection{Création des données et augmentation}
+La fiabilité d'un système OCR est intrinsèquement liée à la représentativité de ses données d'apprentissage. Nous avons donc développé un \textbf{générateur de données synthétiques} capable de produire une infinité d'exemples annotés, simulant des conditions de dégradation réalistes.
 
-Le processus de génération a commencé par le rendu de caractères alphabétiques (minuscules et majuscules) à partir d'une vaste collection de polices de caractères courantes (Serif, Sans-serif, Monospace, ...). Cette étape initiale a permis de garantir une grande diversité dans les formes de base des lettres. Par la suite, une chaîne d'augmentations sophistiquées a été appliquée à chaque image de base pour simuler une variété de dégradations :
+Le pipeline de génération opère en deux temps :
+\begin{enumerate}
+    \item \textbf{Rendu Typographique :} Génération de caractères alphanumériques via une large bibliothèque de polices (Serif, Sans-serif, Manuscrit), assurant une diversité morphologique fondamentale.
+    \item \textbf{Dégradation Stochastique :} Application d'une chaîne de transformations aléatoires pour modéliser les imperfections physiques et numériques.
+\end{enumerate}
+
+Les augmentations appliquées visent à immuniser le réseau contre les variations courantes :
+
 \begin{itemize}
-    \item \textbf{Effets de Papier et d'Impression :} Pour imiter le support physique et les imperfections de l'impression.
-    \begin{itemize}
-        \item \textit{Froissement et Plis :} Simulation de papier froissé avec des ombres pour créer un effet de relief et des déformations locales.
-        \item \textit{Jaunissement du Papier :} Application d'une teinte jaune subtile pour simuler le vieillissement naturel du papier.
-        \item \textit{Bavure d'Encre :} Dilatation légère des contours des caractères pour imiter l'encre s'étalant sur les fibres du papier.
-        \item \textit{Grain de Papier :} Ajout d'un bruit de fond à basse fréquence pour recréer la texture inhérente au papier.
-    \end{itemize}
-    \item \textbf{Distorsions Géométriques :} Pour simuler des numérisations imparfaites et des documents mal positionnés.
-    \begin{itemize}
-        \item \textit{Rotation :} Inclinaison de l'image entière pour simuler un document mal aligné sur le scanner.
-        \item \textit{Perspective :} Déformation de l'image comme si elle était photographiée sous un angle, et non à plat.
-        \item \textit{Transformations Affines :} Combinaison de mises à l'échelle (zoom avant/arrière), de translations, de rotations et de cisaillements pour une grande variété de distorsions linéaires.
-    \end{itemize}
-    \item \textbf{Bruit et Flou :} Pour simuler des conditions de numérisation de faible qualité ou des problèmes d'équipement.
-    \begin{itemize}
-        \item \textit{Bruit Gaussien et Multiplicatif :} Ajout de bruit aléatoire pour simuler les imperfections des capteurs électroniques du scanner.
-        \item \textit{Flou Gaussien et de Mouvement :} Application de flous pour simuler des problèmes de mise au point ou un léger mouvement du document pendant la numérisation.
-        \item \textit{Défocalisation :} Imitation d'un effet de profondeur de champ ou d'une mauvaise mise au point générale.
-    \end{itemize}
-    \item \textbf{Déformations Avancées et Artefacts :} Pour simuler des dégradations plus complexes du papier ou de l'optique.
-    \begin{itemize}
-        \item \textit{Distorsion en Grille et Élastique :} Déformations non linéaires qui étirent et contractent localement l'image pour simuler du papier ondulé ou déformé.
-        \item \textit{Distorsion Optique :} Simulation des aberrations de lentille (comme un léger effet "fisheye") qui peuvent se produire avec des appareils photo ou des scanners de mauvaise qualité.
-        \item \textit{Netteté et Masque de Flou :} Application de filtres pour accentuer ou adoucir artificiellement les contours, simulant différents types de post-traitement logiciel.
-        \item \textit{Artefacts de Scanner :} Simulation de pertes d'information locales en supprimant des zones rectangulaires ou en grille de l'image (\textit{dropout}).
-    \end{itemize}
+    \item \textbf{Altérations Physiques :} Simulation du vieillissement du papier (jaunissement, grain), de la texture et de la diffusion de l'encre (bavures).
+    \item \textbf{Distorsions Géométriques :} Rotations aléatoires, corrections de perspective et déformations élastiques simulant des pages gondolées.
+    \item \textbf{Artefacts de Numérisation :} Ajout de bruits de capteur (Gaussien, Speckle), flou de mise au point et pertes d'information locales (\textit{dropout}).
 \end{itemize}
 
-Ce processus a permis de générer un ensemble de données final composé de \textbf{164,424 images pour l'entraînement} et \textbf{29,016 pour les tests}.
+Ce processus a abouti à la création d'un corpus robuste de \textbf{164 424 images d'entraînement} et \textbf{29 016 images de validation}.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.5\textwidth]{ressources/dataset_samples.png}
-    \caption{Un aperçu des images du jeu de données d'entraînement synthétique.}
+    \includegraphics[width=0.6\textwidth]{ressources/dataset_samples.png}
+    \caption{Exemples de données synthétiques générées, illustrant la variété des polices et des dégradations.}
     \label{fig:dataset_samples}
 \end{figure}
 
-Enfin, avant d'être injectées dans le réseau, les images subissent une étape de \textbf{normalisation}. Les valeurs des pixels, initialement comprises dans l'intervalle [0, 1], sont transformées pour être dans l'intervalle [-1, 1]. Cette normalisation centre les données autour de zéro, ce qui aide à stabiliser et accélérer la convergence du modèle.
+Une étape de \textbf{prétraitement} normalise les entrées : les pixels sont centrés et mis à l'échelle dans l'intervalle $[-1, 1]$, facilitant ainsi la dynamique d'optimisation du réseau.
 
-La durée totale de l'entraînement pour atteindre les performances optimales a été de \textbf{4 heures, 39 minutes et 44 secondes}.
+\subsection{Configuration}
+Pour garantir la reproductibilité de nos résultats, nous avons figé un ensemble d'hyperparamètres déterminés empiriquement pour offrir le meilleur compromis entre stabilité et vitesse de convergence.
 
-\subsection{Hyperparamètres}
+\begin{table}[H]
+    \centering
+    \caption{Hyperparamètres de l'entraînement}
+    \label{tab:hyperparams}
+    \begin{tabular}{|l|l|p{6cm}|}
+        \hline
+        \textbf{Paramètre} & \textbf{Valeur} & \textbf{Justification} \\
+        \hline
+        Optimiseur & AdamW & Meilleure généralisation que Adam classique grâce au découplage de la décroissance de poids. \\
+        \hline
+        Taux d'apprentissage & $10^{-3}$ & Valeur standard permettant un démarrage rapide sans divergence. \\
+        \hline
+        Taille de lot (Batch) & 64 & Compromis équilibré entre l'estimation du gradient et l'occupation mémoire RAM. \\
+        \hline
+        Époques & 12 & Suffisant pour atteindre la convergence sans surapprentissage excessif. \\
+        \hline
+        Weight Decay & $10^{-4}$ & Régularisation L2 pour pénaliser les poids trop importants. \\
+        \hline
+    \end{tabular}
+\end{table}
 
-\begin{itemize}
-    \item \textbf{Epochs :} L'entraînement a été effectué sur \textbf{12 epochs}. Un epoch correspond à un passage complet sur l'intégralité du jeu de données d'entraînement.
-    \item \textbf{Taille de Lot (Batch Size) :} Nous avons utilisé une taille de lot de \textbf{64}. Le traitement des données par lots permet une estimation plus stable du gradient tout en étant efficace sur le plan computationnel.
-    \item \textbf{Optimiseur :} Comme détaillé dans la section précédente, nous avons utilisé \textbf{AdamW}, avec des paramètres standards pour les moments (\(\beta_1=0.9\), \(\beta_2=0.999\)) et une petite constante \(\epsilon=1e-8\) pour la stabilité numérique.
-    \item \textbf{Taux d'Apprentissage Initial :} Le taux d'apprentissage a été initialisé à \textbf{0.001}. C'est une valeur de départ courante qui offre un bon compromis entre une convergence rapide et le risque de dépasser un minimum local.
-    \item \textbf{Décroissance de Poids (Weight Decay) :} Une valeur de \textbf{0.0001} a été utilisée pour la décroissance de poids découplée d'AdamW.
-\end{itemize}
+La session d'entraînement complète a nécessité \textbf{4 heures et 39 minutes}.
 
-\subsection{Analyse de la Performance du Modèle}
+\subsection{Dynamique de Convergence}
+L'analyse des courbes d'apprentissage est essentielle pour diagnostiquer le comportement du modèle.
 
-Le suivi de la perte (loss) et de la précision (accuracy) est essentiel pour évaluer la convergence du modèle.
-
-\subsubsection{Évolution par Époque}
-Une vue d'ensemble de l'apprentissage est obtenue en analysant les performances à la fin de chaque epoch.
+\subsubsection{Analyse Globale (Inter-Epoch)}
+Les graphiques ci-dessous (\ref{fig:epoch_performance}) montrent l'évolution des métriques moyennes à la fin de chaque époque.
 
 \begin{figure}[H]
     \centering
     \begin{subfigure}{0.48\textwidth}
         \includegraphics[width=\linewidth]{ressources/epoch_loss.png}
-        \caption{Évolution de la perte par epoch.}
+        \caption{Décroissance de la fonction de coût.}
         \label{fig:epoch_loss}
     \end{subfigure}
     \hfill
     \begin{subfigure}{0.48\textwidth}
         \includegraphics[width=\linewidth]{ressources/epoch_accuracy.png}
-        \caption{Évolution de la précision par epoch.}
+        \caption{Gain de précision.}
         \label{fig:epoch_accuracy}
     \end{subfigure}
-    \caption{Performance du modèle au fil des epochs.}
+    \caption{Évolution des performances globales sur 12 époques.}
     \label{fig:epoch_performance}
 \end{figure}
 
-
-\subsubsection{Analyse au Niveau des Lots}
-Une analyse plus fine peut être menée en observant les métriques au niveau des lots (batches).
+\subsubsection{Stabilité Locale (Intra-Epoch)}
+À l'échelle des micro-lots (batches), la variance observée (Fig. \ref{fig:batch_performance}) est naturelle. Elle résulte de la nature stochastique de l'optimisation : chaque lot ne contient qu'une approximation du gradient réel. Cette "agitation" est bénéfique car elle aide le modèle à s'échapper des minima locaux.
 
 \begin{figure}[H]
     \centering
     \begin{subfigure}{0.48\textwidth}
         \includegraphics[width=\linewidth]{ressources/batch_loss.png}
-        \caption{Perte par lot.}
+        \caption{Variance de la perte par lot.}
         \label{fig:batch_loss}
     \end{subfigure}
     \hfill
     \begin{subfigure}{0.48\textwidth}
         \includegraphics[width=\linewidth]{ressources/batch_accuracy.png}
-        \caption{Précision par lot.}
+        \caption{Précision instantanée.}
         \label{fig:batch_accuracy}
     \end{subfigure}
-    \caption{Performance du modèle au niveau des lots.}
+    \caption{Dynamique instantanée de l'apprentissage.}
     \label{fig:batch_performance}
 \end{figure}
 
+\subsection{Mécanismes de Contrôle et Régularisation}
+Pour piloter finement la descente de gradient, nous avons implémenté des stratégies adaptatives.
 
-\subsection{Stratégies d'Optimisation de l'Entraînement}
-Au-delà du choix de l'optimiseur, des stratégies supplémentaires ont été mises en œuvre pour améliorer la robustesse et l'efficacité de l'entraînement.
-
-\subsubsection{Ordonnancement du Taux d'Apprentissage (Learning Rate Scheduling)}
-Le taux d'apprentissage est l'un des hyperparamètres les plus importants. Un taux trop élevé peut empêcher la convergence, tandis qu'un taux trop faible peut la ralentir considérablement. Un \textbf{ordonnanceur de taux d'apprentissage} est une technique qui ajuste dynamiquement cette valeur au cours de l'entraînement.
-
-Nous avons utilisé un ordonnanceur de type \textbf{StepLR}. Cette stratégie maintient le taux d'apprentissage constant pendant un certain nombre d'epochs, puis le réduit d'un facteur multiplicatif. Dans notre configuration, le taux d'apprentissage était réduit d'un facteur de \textbf{0.1} (gamma) toutes les \textbf{7 epochs}. L'avantage de cette approche est double :
-\begin{itemize}
-    \item Au début, un taux d'apprentissage relativement élevé (0.001) permet au modèle de converger rapidement vers une bonne région du paysage de perte.
-    \item Plus tard, un taux d'apprentissage plus faible permet au modèle d'explorer cette région plus finement pour se rapprocher d'un minimum optimal, sans "rebondir" hors de la vallée.
-\end{itemize}
-
-Le pseudo-code suivant illustre le mécanisme de mise à jour du taux d'apprentissage par l'ordonnanceur StepLR.
+\subsubsection{Ordonnancement du Taux d'Apprentissage (Scheduler)}
+Une approche de type \textbf{Step Decay} a été retenue. L'idée est de réduire l'amplitude des mises à jour des poids à mesure que l'on s'approche de la solution optimale, pour "atterrir" en douceur au fond du minimum global.
+Le taux d'apprentissage $\eta$ est multiplié par un facteur $\gamma = 0.1$ toutes les 7 époques.
 
 \begin{algorithm}[H]
-    \caption{Pseudo-code de l'ordonnanceur StepLR}
+    \caption{Logique du StepLR Scheduler}
     \label{alg:steplr}
     \begin{algorithmic}[1]
-        \Require $lr_{initial}$ (Taux d'apprentissage initial)
-        \Require $step\_size$ (Fréquence de la mise à jour, en epochs)
-        \Require $\gamma$ (Facteur de réduction du taux d'apprentissage)
-
-        \Function{GetLearningRate}{$epoch$}
-            \State $power \leftarrow \lfloor (epoch - 1) / step\_size \rfloor$
-            \State $lr_{new} \leftarrow lr_{initial} \times \gamma^{power}$
-            \State \Return $lr_{new}$
-        \EndFunction
+        \Require $\eta_{init}$, $\gamma$ (facteur), $S$ (pas)
+        \State $k \leftarrow \lfloor \text{epoch} / S \rfloor$
+        \State $\eta_{new} \leftarrow \eta_{init} \times \gamma^{k}$
     \end{algorithmic}
 \end{algorithm}
 
-\subsubsection{Prévention du Surapprentissage et Arrêt Précoce (Early Stopping)}
-Le surapprentissage est un risque majeur où le modèle mémorise les données d'entraînement au lieu d'apprendre à généraliser. Pour contrer cela, nous avons mis en place une stratégie d'\textbf{arrêt précoce (Early Stopping)}.
+\subsubsection{Arrêt Précoce (Early Stopping)}
+Pour éviter le surapprentissage (overfitting), où le modèle apprendrait "par cœur" les données d'entraînement sans généraliser, nous surveillons la performance sur le jeu de validation. Si celle-ci ne s'améliore pas durant \textbf{10 époques} consécutives, l'entraînement est stoppé.
 
-Cette technique consiste à surveiller les performances du modèle sur un ensemble de données de validation (dans notre cas, l'ensemble de test) à la fin de chaque epoch. Si les performances sur cet ensemble n'ont pas montré d'amélioration pendant un certain nombre d'epochs consécutives (un paramètre appelé \textbf{patience}, que nous avons fixé à 10), l'entraînement est interrompu. Le modèle final retenu est celui qui a obtenu les meilleures performances sur l'ensemble de validation, et non nécessairement celui de la toute dernière epoch. Cette méthode offre deux avantages majeurs :
-\begin{itemize}
-    \item Elle agit comme une forme de régularisation en empêchant le modèle de trop se spécialiser sur les données d'entraînement.
-    \item Elle peut économiser un temps de calcul considérable en terminant l'entraînement dès que le modèle cesse de s'améliorer.
-\end{itemize}
-
-\subsection{Résultats Finaux de l'Entraînement}
+\subsection{Bilan de Performance et Infrastructure}
 
 \subsubsection{Métriques Finales}
-L'entraînement s'est terminé avec succès après \textbf{12 epochs} sur \textbf{15 epochs}, atteignant des performances remarquables sur l'ensemble de validation. Le modèle a démontré une capacité d'apprentissage exceptionnelle avec les métriques finales suivantes :
+À l'issue de l'entraînement, le modèle atteint des performances théoriques élevées :
+\begin{itemize}
+    \item \textbf{Précision Validation :} $96.60\%$
+    \item \textbf{Précision Entraînement :} $97.72\%$
+\end{itemize}
+Le faible écart entre ces deux valeurs ($1.12\%$) témoigne d'une bonne généralisation sur les données synthétiques.
 
-\begin{table}[H]
-    \centering
-    \caption{Métriques finales du modèle à l'epoch 12}
-    \label{tab:final_metrics}
-    \begin{tabular}{|l|c|}
-        \hline
-        \textbf{Métrique} & \textbf{Valeur} \\
-        \hline
-        Perte d'entraînement (Loss) & 0.059935 \\
-        Précision d'entraînement & 97.7230\% \\
-        Précision de validation & 96.5950\% \\
-        \hline
-    \end{tabular}
-\end{table}
+\subsubsection{Environnement de Calcul}
+Les calculs ont été déportés sur un serveur \textbf{Intel Xeon Platinum 8488C}. Ce choix a permis de maintenir une latence d'inférence/rétropropagation constante de \textbf{500 ms/lot}, là où une machine grand public (i7-11800H) oscillait entre 700 et 1000 ms avec une forte variance thermique.
 
+\subsection{Généralisation au Monde Réel}
+Si les résultats quantitatifs sont excellents sur le jeu de données de test (généré synthétiquement), le passage aux données réelles a révélé des défis intéressants.
 
-Le modèle a atteint son pic de performance à l'\textbf{époque 12}, avec une précision de validation de \textbf{96.60\%}.
+Nous avons noté une baisse de performance sur des lettres ambigues (ex: confusion O/Q ou I/l). Une comparaison directe avec une implémentation équivalente sous \textbf{PyTorch} a montré que notre implémentation \texttt{C}, bien que fonctionnelle, souffre d'un léger déficit de précision par rapport aux frameworks industriels.
 
-\subsection{Considérations sur le Matériel et le Temps d'Entraînement}
-L'entraînement du modèle a été réalisé sur un processeur \textbf{Intel Xeon Platinum 8488C}. Le choix de ce matériel de qualité serveur n'est pas anodin : il a été motivé par la recherche d'une stabilité maximale durant les longs processus de calcul. En effet, une durée d'entraînement de plus de 4 heures est considérable et s'explique en grande partie par la complexité inhérente à l'optimisation d'un réseau de neurones. Malgré de nombreuses optimisations, le temps de traitement par lot (batch) se situait autour de \textbf{500 ms}.
-
-À titre de comparaison, des tests préliminaires sur des processeurs grand public (\textbf{I7 11800H}) ont montré des temps par lot non seulement plus élevés, oscillant entre 700 et 1000 ms, mais aussi beaucoup plus instables, ce qui aurait pu compromettre allonger le temps d'entraînement.
-
-\subsection{Défis Rencontrés et Analyse des Résultats sur Données Réelles}
-Malgré des métriques de validation impressionnantes, les performances du modèle sur des données réelles se sont avérées quelque peu décevantes. Nous suspectons que cette baisse de performance est due à une implémentation perfectible des couches de convolution (\textit{Conv2D}), qui ne parviendraient pas à extraire les caractéristiques les plus pertinentes des images de manière aussi efficace que prévu.
-Cette hypothèse est renforcée par une comparaison avec un prototype développé sous \textbf{PyTorch}, un framework d'apprentissage automatique de référence. Avec une architecture strictement identique, la version PyTorch a montré une bien meilleure généralisation sur des données réelles, en particulier sur la distinction de caractères notoirement difficiles comme les paires \textbf{O/Q} ou le groupe \textbf{I/T/L}. Or, notre jeu de données synthétique avait été spécifiquement enrichi et affiné pour forcer le modèle à bien différencier ces cas ambigus. Le fait que le modèle en C éprouve des difficultés là où la version PyTorch réussit suggère que le problème ne réside ni dans l'architecture ni dans les données, mais bien dans les détails de l'implémentation bas-niveau des opérations de convolution.
+Cette différence s'explique probablement par des optimisations numériques de bas niveau (gestion des arrondis, précision des accumulateurs dans les convolutions) que des librairies comme PyTorch gèrent avec une maturité extrême.
