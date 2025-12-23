@@ -135,3 +135,6 @@ build
 build/
 data/*.npy
 data/*.idx
+
+__pycache__/
+.vscode/
