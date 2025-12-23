@@ -1,6 +1,6 @@
 # WordSearch OCR & Solver
 
-This project is a high-performance **WordSearch Solver** powered by a custom-built **Convolutional Neural Network (CNN)** for character recognition. It transforms an image of a word search grid into a solved digital representation by combining advanced computer vision techniques, a robust deep learning model, and a probabilistic solver.
+This project is a **WordSearch Solver** powered by a custom-built **Convolutional Neural Network (CNN)** for character recognition. 
 
 ## Overview
 
