@@ -92,5 +92,5 @@ The project uses a custom **Tensor** structure:
 ---
 
 ## Authors & Acknowledgments
-Developed as a project for **Epita's 3rd semester**. This work combines low-level C programming with deep learning. Detailed explanations of the mathematics and implementation can be found in the `latex/` directory.
+Developed as a project for **Epita's 3rd semester** OCR Project. This work combines low-level C programming with deep learning. Detailed explanations of the mathematics and implementation can be found in the `latex/` directory.
 
